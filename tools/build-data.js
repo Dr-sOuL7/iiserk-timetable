@@ -19,11 +19,11 @@ const OUT = path.join(ROOT, 'data', 'timetable.js');
 
 const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
-// The source timetable lists start times only. Durations below are display-only
-// assumptions derived from the IISER-K slot grid (lectures/tutorials sit on a
-// 55-minute grid: 08:00, 08:55, 09:50, 10:45, 11:40, 13:30, 14:25, 15:20,
-// 16:15, 17:10). Change these two numbers to change every duration in the app.
-const DURATION_MINUTES = { Theory: 55, Tutorial: 55, Lab: 165 };
+// Class lengths. Lectures and tutorials run 50 minutes with a 5-minute break
+// before the next one, which is why the published slot grid steps in 55s
+// (08:00, 08:55, 09:50, 10:45, 11:40, 13:30, 14:25, 15:20, 16:15, 17:10).
+// Labs run 160 minutes. Change these numbers to change every duration in the app.
+const DURATION_MINUTES = { Theory: 50, Tutorial: 50, Lab: 160 };
 
 const DAY_HEADER = /^([A-Za-z]+day)\s*-\s*$/;
 const EVENT = /^\s*\*\s*(.+?)\s*:\s*([A-Z]{2}\d{4})\s*(\(Tut\))?\s*\[(.+?)\]\s*\((Theory|Lab|Tut|Tutorial)\)\s*$/;
@@ -151,8 +151,8 @@ function main() {
     /** Teaching days, in week order. */
     days: ${JSON.stringify(DAYS)},
     /**
-     * Display-only class lengths in minutes. The source timetable gives start
-     * times only; these follow the 55-minute IISER-K slot grid.
+     * Class lengths in minutes. Lectures and tutorials run 50 minutes with a
+     * 5-minute break before the next slot; labs run 160 minutes.
      */
     durations: ${JSON.stringify(DURATION_MINUTES)},
     /** Every course that appears at least once in the timetable. */

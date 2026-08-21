@@ -209,9 +209,9 @@ function clockScript(iso) {
     check('current class is announced', /Current class/i.test(nowCard));
     check('current class is the right course', /PH3104/.test(nowCard));
     check('current class shows its room', /G08/.test(nowCard));
-    eq('remaining time is computed exactly',
+    eq('remaining time is computed exactly (50-minute class)',
       (await page.locator('.now-card.live .now-remain').textContent()).trim(),
-      '40 minutes remaining');
+      '35 minutes remaining');
     check('next class is announced', /Next/.test(nowCard));
     check('next class is the 09:50 PH3102', /09:50/.test(nowCard) && /PH3102/.test(nowCard));
 
@@ -277,8 +277,12 @@ function clockScript(iso) {
         want: (t) => /Next/.test(t) && /PH3104/.test(t) },
       { at: '2026-08-28T20:00:00', label: 'Friday night rolls over to Monday',
         want: (t) => /on Monday/.test(t) },
-      { at: '2026-08-24T09:49:30', label: '30 s before the next class starts',
+      { at: '2026-08-24T09:44:30', label: 'last 30 s of a class',
         want: (t) => /Current class/.test(t) && /less than a minute|1 minute/.test(t) },
+      { at: '2026-08-24T09:47:00', label: 'during the 5-minute break between classes',
+        want: (t) => !/Current class/.test(t) && /Starts in 3 minutes/.test(t) },
+      { at: '2026-08-24T09:50:00', label: 'exactly on a class start',
+        want: (t) => /Current class/.test(t) && /50 minutes remaining/.test(t) },
     ];
 
     for (const c of cases) {
@@ -291,14 +295,23 @@ function clockScript(iso) {
       await ctx.close();
     }
 
-    // Weekend day list
-    const ctx = await browser.newContext(ctxOpts);
-    const page = await newPage(ctx, { clock: '2026-08-29T12:00:00' });
-    await seed(page, ['PH3104']);
-    await page.waitForSelector('#screen-app:not([hidden])');
-    check('Saturday shows a weekend empty state',
-      /weekend/i.test(await page.textContent('#today-list')));
-    await ctx.close();
+    // Weekend: Saturday and Sunday are holidays.
+    // From Saturday the next class is "on Monday"; from Sunday it is "tomorrow".
+    for (const [at, day, when] of [['2026-08-29T12:00:00', 'Saturday', 'Starts on Monday'],
+                                   ['2026-08-30T12:00:00', 'Sunday', 'Starts tomorrow']]) {
+      const ctx = await browser.newContext(ctxOpts);
+      const page = await newPage(ctx, { clock: at });
+      await seed(page, ['PH3104']);
+      await page.waitForSelector('#screen-app:not([hidden])');
+      const list = await page.textContent('#today-list');
+      check(`${day} is a holiday with no classes`,
+        /weekend/i.test(list) && new RegExp(day).test(list) &&
+        (await page.locator('#today-list .event').count()) === 0);
+      const card = await page.textContent('#now-card');
+      check(`${day} still points at Monday's first class`,
+        card.includes(when) && /PH3104/.test(card), when);
+      await ctx.close();
+    }
   }
 
   // ============ 4. No courses selected ============
@@ -526,6 +539,31 @@ function clockScript(iso) {
       return evs.map((e) => [e.time, e.type, e.room]);
     });
     eq('lab events keep their type and room', lab, [['13:30', 'Lab', 'DPS 2nd Year Lab']]);
+
+    const durations = await page.evaluate(() => {
+      const D = window.TIMETABLE_DATA;
+      const by = {};
+      D.events.forEach((e) => { (by[e.type] = by[e.type] || new Set()).add(e.duration); });
+      return Object.fromEntries(Object.entries(by).map(([k, v]) => [k, [...v]]));
+    });
+    eq('classes are 50 minutes and labs 160',
+      Object.keys(durations).sort().map((k) => [k, durations[k]]),
+      [['Lab', [160]], ['Theory', [50]], ['Tutorial', [50]]]);
+
+    // The 55-minute slot step minus a 50-minute class is the 5-minute break.
+    const gaps = await page.evaluate(() => {
+      const t = window.__tt, D = window.TIMETABLE_DATA;
+      const all = new Set(D.courses.map((c) => c.code));
+      const starts = [...new Set(t.eventsFor('Monday', all)
+        .filter((e) => e.type !== 'Lab').map((e) => e.minutes))].sort((a, b) => a - b);
+      const out = [];
+      for (let i = 1; i < starts.length; i++) {
+        const gap = starts[i] - starts[i - 1] - 50;
+        if (gap < 60) out.push(gap);   // ignore the long midday break
+      }
+      return [...new Set(out)];
+    });
+    eq('consecutive slots leave a 5-minute break', gaps, [5]);
     await ctx.close();
   }
 

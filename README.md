@@ -24,7 +24,7 @@ repository.
 | `tools/build-data.js` | Regenerates `data/timetable.js` from `tools/raw/`. |
 | `tools/validate-data.js` | 19 checks of the generated data against the raw source. |
 | `tools/make-icons.py` | Regenerates `icons/` (pure Python, no image libraries). |
-| `tests/app.test.js` | 84 end-to-end browser checks (Playwright + headless Chromium). |
+| `tests/app.test.js` | End-to-end browser checks (Playwright + headless Chromium). |
 
 Everything under `tools/` and `tests/` is for development only. The deployed
 site is just the files in the repository root plus `data/` and `icons/`.
@@ -83,7 +83,7 @@ No UI code needs to change.
 
 ```bash
 node tools/validate-data.js                       # 19 data checks
-NODE_PATH=$(npm root -g) node tests/app.test.js   # 84 browser checks
+NODE_PATH=$(npm root -g) node tests/app.test.js   # browser checks
 ```
 
 The browser suite serves the real site over HTTP and drives headless Chromium at
@@ -93,12 +93,13 @@ browser context offline to verify the service worker.
 
 ## Data notes and limitations
 
-- **Start times only.** The published timetable lists start times, not end
-  times. Durations are display-only assumptions from the 55-minute slot grid:
-  55 minutes for Theory and Tutorial, 165 minutes for Lab. They affect the
-  "current class" window, the "minutes remaining" figure and the `55 min` label
-  — nothing else. Both numbers live in one place, `DURATION_MINUTES` in
-  `tools/build-data.js` (mirrored into `data/timetable.js` as `durations`).
+- **Start times only in the source.** The published timetable lists start
+  times, not end times, so lengths are supplied by the app: lectures and
+  tutorials run **50 minutes**, with a **5-minute break** before the next slot
+  (which is why the grid steps in 55s), and labs run **160 minutes**. Both
+  numbers live in one place, `DURATION_MINUTES` in `tools/build-data.js`
+  (mirrored into `data/timetable.js` as `durations`); change them there and
+  regenerate.
 - **`(Tut)` means Tutorial.** Source lines such as
   `PH3104 (Tut) [G08] (Theory)` end in `(Theory)` but are tutorials; they are
   classified as Tutorial. Lines ending in `(Lab)` are Labs. Everything else is
@@ -109,10 +110,10 @@ browser context offline to verify the service worker.
   silently "fix" the source.
 - **Same-slot duplicates are preserved.** Friday 09:50 `CH2104 (Tut)` is listed
   twice in two different rooms; both are kept as separate events.
-- Monday–Friday only; the source has no weekend classes. Saturday and Sunday
-  show a weekend state plus the next upcoming class.
-- No holidays, exam dates, one-off reschedules or instructor names — the source
-  data contains none of these.
+- **Monday–Friday only.** Saturday and Sunday are holidays: both show a
+  weekend state with no events, plus a pointer to the next upcoming class.
+- No public/academic-calendar holidays, exam dates, one-off reschedules or
+  instructor names — the source data contains none of these.
 - Course names come from `Autumn_2026_Offered_Courses.csv`. All 122 timetabled
   codes matched a name.
 - The selection is stored in `localStorage` under `iiserk.tt.courses.v1`, so it
