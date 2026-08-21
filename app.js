@@ -358,6 +358,7 @@
 
     return {
       today: today,
+      nowMin: nowMin,
       current: current,
       remaining: current.length ? (current[0].minutes + current[0].duration - nowMin) : null,
       elapsed: current.length ? (nowMin - current[0].minutes) : null,
@@ -413,7 +414,8 @@
     if (!state.selected.size) return '';
     var html = '';
 
-    info.current.forEach(function (e) {
+    if (info.current.length === 1) {
+      var e = info.current[0];
       var pct = Math.min(100, Math.max(0, (info.elapsed / e.duration) * 100));
       html +=
         '<div class="now-card live">' +
@@ -426,7 +428,24 @@
           '<div class="now-remain">' + esc(humanDuration(info.remaining)) + ' remaining</div>' +
           '<div class="progress"><i style="width:' + pct.toFixed(1) + '%"></i></div>' +
         '</div>';
-    });
+    } else if (info.current.length > 1) {
+      // Clashing classes share one card rather than stacking full-size cards,
+      // which would push the far more useful "next" card off the screen.
+      html +=
+        '<div class="now-card live">' +
+          '<div class="now-label"><span class="dot"></span>Current class' +
+            '<span class="now-count">' + info.current.length + ' at once</span></div>' +
+          info.current.map(function (e) {
+            var left = e.minutes + e.duration - info.nowMin;
+            return '<div class="now-row">' +
+              '<span class="now-row-code">' + esc(e.course) + '</span>' +
+              '<span class="badge ' + e.type + '">' + esc(e.type) + '</span>' +
+              '<span class="now-row-room">' + esc(e.room) + '</span>' +
+              '<span class="now-row-left">' + esc(humanDuration(left)) + ' left</span>' +
+            '</div>';
+          }).join('') +
+        '</div>';
+    }
 
     if (info.next.length) {
       var n = info.next[0];
@@ -438,6 +457,12 @@
         '<div class="now-card">' +
           '<div class="now-label">Next' + (info.current.length ? '' : ' class') + '</div>' +
           '<div class="now-course"><span class="now-code">' + esc(n.time) + '</span>' +
+            // A class on another day gets its day up next to the time, so
+            // "not today" is obvious at a glance rather than only in the
+            // "Starts ..." line below.
+            (info.nextOffset > 0
+              ? '<span class="now-day">' + esc(info.nextOffset === 1 ? 'Tomorrow' : n.day) + '</span>'
+              : '') +
             '<span class="badge ' + n.type + '">' + esc(n.type) + '</span></div>' +
           '<div class="now-name"><strong>' + esc(n.course) + '</strong>' +
             (n.name ? ' &middot; ' + esc(n.name) : '') + '</div>' +

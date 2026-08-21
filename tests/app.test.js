@@ -1130,6 +1130,122 @@ function clockScript(iso) {
     await ctx.close();
   }
 
+  // ============ 19. Layout, touch targets and hierarchy ============
+  {
+    // No horizontal overflow anywhere, at the narrowest supported phone width.
+    for (const [w, h] of [[360, 800], [412, 915], [900, 1000]]) {
+      const ctx = await browser.newContext({ viewport: { width: w, height: h }, deviceScaleFactor: 2 });
+      const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+      await seed(page, ['PH3104', 'PH3102', 'MA3101', 'PH2103', 'CH3102']);
+      await page.waitForSelector('#screen-app:not([hidden])');
+
+      const overflow = () => page.evaluate(() =>
+        document.documentElement.scrollWidth - document.documentElement.clientWidth);
+
+      eq(`no horizontal overflow on Today at ${w}px`, await overflow(), 0);
+      await page.click('.tab[data-view="week"]');
+      await page.waitForSelector('#view-week:not([hidden])');
+      eq(`no horizontal overflow on Week at ${w}px`, await overflow(), 0);
+      await page.click('#open-settings');
+      await page.waitForSelector('#settings-sheet:not([hidden])');
+      eq(`no horizontal overflow with the sheet open at ${w}px`, await overflow(), 0);
+      await ctx.close();
+    }
+
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102', 'MA3101', 'PH2103', 'CH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // --- touch targets, including any invisible hit area
+    const target = (sel) => page.evaluate((s) => {
+      const el = document.querySelector(s);
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      let h = r.height;
+      const after = getComputedStyle(el, '::after');
+      if (after && after.content === '""') {
+        h += Math.abs(parseFloat(after.top) || 0) + Math.abs(parseFloat(after.bottom) || 0);
+      }
+      return [Math.round(r.width), Math.round(h)];
+    }, sel);
+
+    const big = (name, sel, min) => target(sel).then((t) =>
+      check(name, t && t[0] >= min && t[1] >= min, t ? t.join('x') : 'missing'));
+
+    await big('settings button is a 44px target', '#open-settings', 44);
+    await big('bottom-nav tabs are large targets', '.tab', 44);
+    await big('per-event menu is a 44px target', '#today-list .evt-menu', 44);
+
+    // --- content is never hidden behind the bottom navigation
+    const clearance = await page.evaluate(() => {
+      const main = document.getElementById('main');
+      const bar = document.querySelector('.tabbar');
+      return Math.round(bar.getBoundingClientRect().top - main.getBoundingClientRect().bottom);
+    });
+    check('the scroll area ends above the bottom nav (no overlap)', clearance >= 0, clearance + 'px');
+
+    // --- concurrent classes share one card instead of stacking full cards
+    eq('clashing current classes render a single card',
+      await page.locator('.now-card.live').count(), 1);
+    eq('both clashing classes are listed inside it',
+      await page.locator('.now-card.live .now-row-code').allTextContents(), ['CH3102', 'PH3104']);
+    check('the next card is still rendered alongside them',
+      await page.locator('.now-card:not(.live)').count() === 1);
+    check('the next card stays within the first screen',
+      await page.evaluate(() => {
+        const el = document.querySelector('.now-card:not(.live)');
+        return el.getBoundingClientRect().bottom <= window.innerHeight;
+      }));
+
+    // --- a next class today carries no day chip; one on another day does
+    eq('a next class today shows no day chip',
+      await page.locator('.now-card:not(.live) .now-day').count(), 0);
+    await ctx.close();
+
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-08-29T12:00:00' });   // Saturday
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('a next class on another day is labelled with that day',
+      (await page2.locator('.now-day').textContent()).trim(), 'Monday');
+    await ctx2.close();
+
+    const ctx3 = await browser.newContext(ctxOpts);
+    const page3 = await newPage(ctx3, { clock: '2026-08-24T18:30:00' });   // Monday evening
+    await seed(page3, ['PH3104']);
+    await page3.waitForSelector('#screen-app:not([hidden])');
+    eq('a next class tomorrow is labelled Tomorrow',
+      (await page3.locator('.now-day').textContent()).trim(), 'Tomorrow');
+    await ctx3.close();
+
+    // --- the week day selector stays pinned while the list scrolls
+    const ctx4 = await browser.newContext(ctxOpts);
+    const page4 = await newPage(ctx4, { clock: '2026-08-24T09:10:00' });
+    await page4.goto(base);
+    await page4.evaluate(() => {
+      const D = window.TIMETABLE_DATA;
+      const codes = [...new Set(D.events.filter((e) => e.day === 'Monday').map((e) => e.course))].slice(0, 14);
+      localStorage.setItem('iiserk.tt.courses.v1', JSON.stringify(codes));
+    });
+    await page4.reload();
+    await page4.waitForSelector('#screen-app:not([hidden])');
+    await page4.click('.tab[data-view="week"]');
+    await page4.waitForSelector('#view-week:not([hidden])');
+
+    const yBefore = await page4.evaluate(() => document.getElementById('day-chips').getBoundingClientRect().top);
+    const scrolled = await page4.evaluate(() => {
+      const m = document.getElementById('main');
+      m.scrollTop = 400;
+      return m.scrollTop;
+    });
+    await page4.waitForTimeout(120);
+    const yAfter = await page4.evaluate(() => document.getElementById('day-chips').getBoundingClientRect().top);
+    check('the day selector stays pinned while the week list scrolls',
+      scrolled > 0 && Math.abs(yAfter - yBefore) < 2, `scrolled ${scrolled}px, moved ${Math.abs(yAfter - yBefore)}px`);
+    await ctx4.close();
+  }
+
   await browser.close();
   server.close();
 
