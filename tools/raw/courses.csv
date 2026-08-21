@@ -1,0 +1,154 @@
+COURSE CODE,COURSE NAME,TYPE
+CH1101,Elements of Chemistry I,Theory
+CS1101,Introduction to Computer Programming,Laboratory
+ES1101,Introduction to Earth Science,Theory
+HU1101,Communicative English I,Theory
+HU1103,Communicative English II,Theory
+LS1101,Introduction to Biology I,Theory
+MA1101,Mathematics I,Theory
+PH1101,Physics I,Theory
+PH1102,Physics Laboratory I,Laboratory
+CH2102,Quantum Chemistry I,Theory
+CH2103,Inorganic and Spectroscopy Laboratory,Laboratory
+CH2104,Basic Inorganic Chemistry I,Theory
+CH2105,Basic Organic Chemistry I,Theory
+CS2101,Computer Organizations and Architecture,Theory
+CS2102,Data Structures and Algorithms,Theory
+CS2103,Data Structures and Algorithms Laboratory,Laboratory
+ES2103,"Minerals, rocks and deformation",Theory
+ES2104,Geophysics and Hydrology,Theory
+ES2105,Earth Science Laboratory I,Laboratory
+LS2101,Biochemistry,Theory
+LS2102,Biology Laboratory II,Laboratory
+LS2103,Biophysics,Theory
+MA2101,Analysis I,Theory
+MA2102,Linear Algebra I,Theory
+MA2104,Probability and Statistics I,Theory
+PH2101,Waves and optics,Theory
+PH2103,Physics Laboratory II,Laboratory
+PH2104,Thermal Physics,Theory
+CH3101,Basic Transition Metal Chemistry,Theory
+CH3102,Organic Chemistry I,Theory
+CH3103,Quantum Chemistry II,Theory
+CH3104,Organic Chemistry II,Theory
+CH3105,Advanced Physical Chemistry Laboratory,Laboratory
+CH3106,Chemical Kinetics,Theory
+CS3102,Programming in Python,Laboratory
+ES3101,Mineralogy and Crystallography,Theory
+ES3102,Mineralogy Laboratory,Laboratory
+ES3103,Sedimentology,Theory
+ES3104,Sedimentology Laboratory,Laboratory
+ES3105,Seismology,Theory
+ES3108,Principles of Atmospheric Science,Theory
+HU3102,Philosophy,Theory
+LS3101,Immunology,Theory
+LS3102,Cell Biology,Theory
+LS3103,Microbiology,Theory
+LS3104,Cell Biology and Imaging Laboratory,Laboratory
+LS3105,Gene Expression Laboratory,Laboratory
+LS3106,IPhD Laboratory Rotation,Laboratory
+MA3101,Multivariable Calculus,Theory
+MA3103,Introduction to Graph Theory and Combinatorics,Theory
+MA3104,Advanced Linear Algebra,Theory
+MA3108,Stochastic Processes,Theory
+MA3109,Topology and metric spaces,Theory
+MA3110,Rings and Modules,Theory
+PH3101,Classical Mechanics,Theory
+PH3102,Quantum Mechanics,Theory
+PH3103,Mathematical Methods of Physics,Theory
+PH3104,Electrical Circuits and Electronics,Theory
+PH3105,Nuclear Physics Laboratory,Laboratory
+CH4102,Advanced Transition Metal Chemistry,Theory
+CH4104,Advanced Organic Chemistry III,Theory
+CH4105,Organic Functional Materials,Theory
+CH4106,Fluorescence Spectroscopy: Principles and Applications,Theory
+CH4107,Chemical Perspectives of Biological Pathways,Theory
+CH4109,Polymer Chemistry,Theory
+CH4111,Quantum Theory of Atoms and Molecules,Theory
+CH4114,Molecular Simulation,Theory
+CH4115,Chemistry for Alternative Energy Solutions,Theory
+CH4116,Advanced Organic Chemistry I,Theory
+CH4117,Advanced Organic Chemistry IV,Theory
+CH4118,Chemistry Laboratory,Laboratory
+CH4119,MS Project I,Project
+CH4120,Research Methodology,Theory
+CH4121,Statistical Thermodynamics,Theory
+CH4122,Fundamentals of Sustainability Science,Theory
+CH4123,Environmental Sustainability Laboratory,Laboratory
+CH4124,Bioconjugation Laboratory,Laboratory
+CH4125,Chemistry of Sustainable Materials,Theory
+CH4126,Low Carbon Energy Systems,Theory
+CH4127,Sustainability Project II,Theory
+CH4128,Quantitative Assessment of Sustainability,Theory
+CS4103,Artificial Intelligence for Data Science,Theory
+ES4101,Structural Geology,Theory
+ES4102,Structural Geology Laboratory,Laboratory
+ES4103,Petrology,Theory
+ES4104,Petrology Laboratory,Laboratory
+ES4105,Geology of Natural Resources,Theory
+ES4106,Environmental Science Fieldwork,Laboratory
+ES4107,Inverse Theory,Theory
+ES4108,Geotechnical Engineering,Theory
+HU4102,Applied Micro-econometrics,Theory
+HU4103,Basic Entrepreneurship,Theory
+LS4101,Plant Biology,Theory
+LS4102,Physiology,Theory
+LS4103,Developmental Biology,Theory
+LS4104,Physiology and Developmental Biology Laboratory,Laboratory
+LS4105,Neurobiology,Theory
+LS4106,Cognition,Theory
+LS4107,Epigenetics,Theory
+LS4109,"Protein Structure, Function and Engineering",Theory
+LS4110,IPhD Second Year Project I,Project
+LS4111,BS Project,Project
+LS4112,Advanced Behavioural Biology,Theory
+LS4113,Chemical Biology,Theory
+LS4114,Chemical Biology Laboratory I,Laboratory
+LS4115,One Health,Theory
+MA4101,Field and Galois Theory,Theory
+MA4102,Functional Analysis,Theory
+MA4104,Algebraic Topology,Theory
+MA4106,Statistics II,Theory
+MA4107,Statistical Inference,Theory
+MA4110,Geometry of Curves and Surfaces,Theory
+MA4111,Numerical Analysis,Laboratory
+MA4112,Multivariate Statistics,Theory
+PH4101,Condensed Matter Physics,Theory
+PH4102,Introductory Astrophysics,Theory
+PH4103,Condensed Matter Laboratory,Laboratory
+PH4104,Nonlinear Dynamics,Theory
+PH4106,Field Theory and Relativistic Quantum Mechanics,Theory
+PH4107,"Advanced Electricity, Magnetism, and Optics",Theory
+PH4108,Biological Physics,Theory
+PH4110,Soft Condensed Matter Physics,Theory
+PH4112,Research Project I,Project
+PH4113,General Theory of Relativity,Theory
+SS4102,MS Research Project,Project
+CH5101,BSMS Project,Project
+CH5102,"Glycochemistry, glycobiology and Medicinal Chemistry",Theory
+CH5103,Supramolecular Chemistry and Applications,Theory
+CH5104,Computational Chemistry,Theory
+CS5105,Fundamentals of Generative AI and Large Language Models: Theory and Practice,Theory
+ES5101,BSMS Project,Project
+ES5102,First Year IPhD Seminar,Seminar
+ES5103,Second Year IPhD Project,Project
+LS5101,Scientific Communication,Theory
+LS5102,MS Project,Project
+LS5103,Research Methodology,Theory
+LS5105,MS Research Project I,Project
+LS5106,Project I,Project
+LS5107,MS Research Project III,Project
+MA5101,MS Project,Project
+MA5102,Partial Differential Equations,Theory
+MA5115,Independent Study II,Project
+MA5122,Commutative Algebra,Theory
+MA5125,Complex Dynamics II,Theory
+MA5126,Topics in Analysis,Theory
+PH5101,MS Project,Project
+PH5102,Independent Study,Project
+PH5103,Condensed Matter Physics II,Theory
+PH5111,IPhD Project I,Project
+PH5112,Experimental Physics,Laboratory
+PH5113,Theoretical Physics I,Theory
+PH5114,Nonequilibrium Quantum Dynamics,Theory
+SS5101,MS Research Project,Project
