@@ -41,8 +41,24 @@ check('same-course same-slot events with different rooms preserved',
   friCh2104.length === 2 && new Set(friCh2104.map((e) => e.room)).size === 2,
   friCh2104.map((e) => e.room).join(' + '));
 
-// 3. Unique ids.
+// 3. Ids: unique, stable and content-derived (user customisations key off them).
 check('all event ids unique', new Set(DATA.events.map((e) => e.id)).size === DATA.events.length);
+check('ids are slug-shaped, not positional',
+  DATA.events.every((e) => /^[a-z]{3}-\d{4}-[a-z]{2}\d{4}-(theory|tutorial|lab)-[a-z0-9-]+$/.test(e.id)),
+  DATA.events[0].id);
+check('ids are derived from the event\'s own fields (recomputable)',
+  (() => {
+    const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return DATA.events.every((e) => e.id === [slug(e.day).slice(0, 3), e.time.replace(':', ''),
+      slug(e.course), slug(e.type), slug(e.room)].join('-'));
+  })());
+check('ids survive reordering (independent of array position)',
+  (() => {
+    const shuffled = [...DATA.events].sort((a, b) => a.room.localeCompare(b.room) || a.id.localeCompare(b.id));
+    const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+    return shuffled.every((e) => e.id === [slug(e.day).slice(0, 3), e.time.replace(':', ''),
+      slug(e.course), slug(e.type), slug(e.room)].join('-'));
+  })());
 
 // 4. Course catalog covers exactly the codes present in events.
 const fromEvents = [...new Set(DATA.events.map((e) => e.course))].sort();

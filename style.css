@@ -5,6 +5,7 @@
    ============================================================ */
 
 :root {
+  color-scheme: light;
   --bg:          #f6f7fb;
   --surface:     #ffffff;
   --surface-2:   #eef1f7;
@@ -34,6 +35,7 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
+    color-scheme: dark;
     --bg:          #0f131b;
     --surface:     #181e29;
     --surface-2:   #212936;
@@ -58,7 +60,10 @@
   }
 }
 
+:root[data-theme="light"] { color-scheme: light; }
+
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg:          #0f131b;
   --surface:     #181e29;
   --surface-2:   #212936;
@@ -517,6 +522,33 @@ svg {
 }
 .event .room svg { width: 14px; height: 14px; flex: none; }
 
+/* Per-event "..." control. Sits outside the text so the card itself is never
+   a tap target and the menu cannot be hit by accident. */
+.evt-menu {
+  flex: none;
+  align-self: flex-start;
+  width: 40px;
+  height: 40px;
+  margin: -6px -8px -6px 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+}
+.evt-menu:active { background: var(--surface-2); }
+.evt-menu svg { width: 20px; height: 20px; stroke-width: 2.4; }
+
+.edited-flag {
+  flex: none;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  color: var(--accent-text);
+  background: var(--accent-soft);
+  border-radius: 999px;
+  padding: 2px 7px;
+}
+
 .badge {
   flex: none;
   font-size: 10.5px;
@@ -600,6 +632,65 @@ svg {
   margin: 4px auto 12px;
 }
 .sheet h2 { font-size: 17px; margin-bottom: 12px; }
+.sheet-sub {
+  font-size: 13.5px;
+  color: var(--text-dim);
+  margin: -8px 0 14px;
+}
+
+/* ---------------- Edit form ---------------- */
+
+.field-row {
+  display: flex;
+  gap: 10px;
+}
+.field-row .field { flex: 1; min-width: 0; }
+
+.field {
+  display: block;
+  margin-bottom: 12px;
+}
+.field > span {
+  display: block;
+  font-size: 12.5px;
+  font-weight: 650;
+  color: var(--text-dim);
+  margin-bottom: 5px;
+}
+.field input,
+.field select {
+  width: 100%;
+  min-height: var(--tap);
+  padding: 0 12px;
+  font-family: inherit;
+  font-size: 16px;          /* >=16px stops iOS zoom-on-focus */
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid transparent;
+  border-radius: 11px;
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+}
+.field select {
+  /* Local chevron: an inline SVG data URI, so no icon font or network fetch. */
+  background-image: url("data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238b94a3' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 10px center;
+  background-size: 18px;
+  padding-right: 34px;
+}
+.field input:focus,
+.field select:focus { border-color: var(--accent); background: var(--surface); }
+.field input[aria-invalid="true"] { border-color: var(--danger); }
+
+.field-error {
+  font-size: 13px;
+  color: var(--danger);
+  margin: -4px 0 10px;
+}
+
+.primary-btn.wide { flex: 1; padding: 0 16px; }
 
 .setting-row {
   display: flex;
@@ -648,6 +739,7 @@ svg {
 .sheet-btn .chev { width: 18px; height: 18px; color: var(--text-faint); flex: none; }
 .sheet-btn.danger { background: var(--danger-soft); }
 .sheet-btn.danger strong { color: var(--danger); }
+.sheet-btn small { overflow-wrap: anywhere; }
 .sheet-btn:active { filter: brightness(.96); }
 
 .sheet-foot {

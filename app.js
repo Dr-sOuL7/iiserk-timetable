@@ -18,6 +18,10 @@
 
   var KEY_COURSES = 'iiserk.tt.courses.v1';
   var KEY_THEME = 'iiserk.tt.theme.v1';
+  // Personal timetable edits/removals. Deliberately a SEPARATE key from the
+  // course selection: resetting courses must not throw away customisations,
+  // and re-selecting the same course brings its customisations back.
+  var KEY_CUSTOM = 'iiserk.tt.custom.v1';
 
   // ---------------------------------------------------------------- storage
 
@@ -50,6 +54,198 @@
 
   function saveSelection(codes) {
     return store.set(KEY_COURSES, JSON.stringify(codes));
+  }
+
+  // ------------------------------------------------- user customisation layer
+
+  /*
+   * window.TIMETABLE_DATA is the authoritative published timetable and is never
+   * written to (it is frozen at start-up). Personal changes live in their own
+   * localStorage entry as a thin layer on top:
+   *
+   *     TIMETABLE_DATA.events            (immutable, 433 published classes)
+   *            +  overrides              (sparse per-event field patches)
+   *            -  removed                (ids the user hid)
+   *            =  effectiveEvents()      (what the app displays)
+   *
+   * Overrides are SPARSE - only the fields that differ from the published event
+   * are stored - so if a future dataset corrects, say, a room, that correction
+   * still reaches a user who had only edited the time.
+   *
+   * Shape: { version: 1, overrides: { <eventId>: {day,time,course,name,type,room} },
+   *          removed: [<eventId>, ...] }
+   */
+  var EDITABLE_FIELDS = ['day', 'time', 'course', 'name', 'type', 'room'];
+  var TYPES = ['Theory', 'Tutorial', 'Lab'];
+
+  var custom = { overrides: {}, removed: [] };
+
+  function has(obj, key) { return Object.prototype.hasOwnProperty.call(obj, key); }
+
+  /**
+   * Read and sanitise the stored customisations. Anything malformed, unknown or
+   * of the wrong type is dropped rather than trusted, so a corrupted entry
+   * degrades to "no customisations" instead of breaking the app.
+   */
+  function loadCustom() {
+    var out = { overrides: {}, removed: [] };
+    var raw = store.get(KEY_CUSTOM);
+    if (!raw) return out;
+
+    var parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return out; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+
+    var src = parsed.overrides;
+    if (src && typeof src === 'object' && !Array.isArray(src)) {
+      Object.keys(src).forEach(function (id) {
+        var patch = src[id];
+        if (!id || !patch || typeof patch !== 'object' || Array.isArray(patch)) return;
+        var clean = {};
+        EDITABLE_FIELDS.forEach(function (f) {
+          if (typeof patch[f] === 'string') clean[f] = patch[f];
+        });
+        if (clean.day && DAYS.indexOf(clean.day) < 0) delete clean.day;
+        if (clean.type && TYPES.indexOf(clean.type) < 0) delete clean.type;
+        if (clean.time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(clean.time)) delete clean.time;
+        if (Object.keys(clean).length) out.overrides[id] = clean;
+      });
+    }
+
+    if (Array.isArray(parsed.removed)) {
+      parsed.removed.forEach(function (id) {
+        if (typeof id === 'string' && id && out.removed.indexOf(id) < 0) out.removed.push(id);
+      });
+    }
+    return out;
+  }
+
+  function saveCustom() {
+    invalidateEffective();
+    if (!Object.keys(custom.overrides).length && !custom.removed.length) {
+      store.remove(KEY_CUSTOM);
+      return true;
+    }
+    return store.set(KEY_CUSTOM, JSON.stringify({
+      version: 1, overrides: custom.overrides, removed: custom.removed
+    }));
+  }
+
+  function customCount() {
+    return {
+      edited: Object.keys(custom.overrides).length,
+      removed: custom.removed.length
+    };
+  }
+
+  function hasCustomisations() {
+    var c = customCount();
+    return c.edited + c.removed > 0;
+  }
+
+  // --- effective (published + personal) event list, rebuilt only when changed
+
+  var effectiveCache = null;
+  function invalidateEffective() { effectiveCache = null; }
+
+  function pick(patch, key, fallback) {
+    return patch && has(patch, key) ? patch[key] : fallback;
+  }
+
+  /** The published timetable with the user's layer applied. Never mutates DATA. */
+  function effectiveEvents() {
+    if (effectiveCache) return effectiveCache;
+
+    var removed = {};
+    custom.removed.forEach(function (id) { removed[id] = true; });
+
+    var out = [];
+    DATA.events.forEach(function (o) {
+      if (removed[o.id]) return;
+      var patch = custom.overrides[o.id] || null;
+
+      var time = pick(patch, 'time', o.time);
+      var type = pick(patch, 'type', o.type);
+      var course = pick(patch, 'course', o.course);
+      var parts = time.split(':');
+
+      out.push({
+        id: o.id,
+        // Course filtering uses the PUBLISHED code, never the edited one - see
+        // eventsFor() for why.
+        originalCourse: o.course,
+        day: pick(patch, 'day', o.day),
+        time: time,
+        minutes: (+parts[0]) * 60 + (+parts[1]),
+        // Length follows the (possibly edited) type, so switching Theory -> Lab
+        // gives the class the right duration.
+        duration: DATA.durations[type] || o.duration,
+        course: course,
+        // With no explicit name override the name tracks the course code, so
+        // changing only the code still shows the right title.
+        name: pick(patch, 'name', NAME_BY_CODE[course] || ''),
+        type: type,
+        room: pick(patch, 'room', o.room),
+        modified: !!patch
+      });
+    });
+
+    effectiveCache = out;
+    return out;
+  }
+
+  function effectiveById(id) {
+    var all = effectiveEvents();
+    for (var i = 0; i < all.length; i++) if (all[i].id === id) return all[i];
+    return null;
+  }
+
+  function originalById(id) {
+    for (var i = 0; i < DATA.events.length; i++) {
+      if (DATA.events[i].id === id) return DATA.events[i];
+    }
+    return null;
+  }
+
+  // --- mutations (each persists immediately)
+
+  function removeEvent(id) {
+    if (custom.removed.indexOf(id) < 0) custom.removed.push(id);
+    delete custom.overrides[id];     // a hidden class needs no field patch
+    return saveCustom();
+  }
+
+  function restoreEvent(id) {
+    delete custom.overrides[id];
+    var i = custom.removed.indexOf(id);
+    if (i >= 0) custom.removed.splice(i, 1);
+    return saveCustom();
+  }
+
+  /**
+   * Store `values` as a sparse patch against the published event. Fields equal
+   * to the published value are not stored, and an edit that restores every
+   * field drops the override entirely.
+   */
+  function saveOverride(id, values) {
+    var orig = originalById(id);
+    if (!orig) return false;
+
+    var patch = {};
+    EDITABLE_FIELDS.forEach(function (f) {
+      if (!has(values, f)) return;
+      var base = f === 'name' ? (NAME_BY_CODE[values.course || orig.course] || '') : orig[f];
+      if (values[f] !== base) patch[f] = values[f];
+    });
+
+    if (Object.keys(patch).length) custom.overrides[id] = patch;
+    else delete custom.overrides[id];
+    return saveCustom();
+  }
+
+  function resetCustomisations() {
+    custom = { overrides: {}, removed: [] };
+    return saveCustom();
   }
 
   // ------------------------------------------------------------------ state
@@ -93,14 +289,20 @@
   var NAME_BY_CODE = {};
   DATA.courses.forEach(function (c) { NAME_BY_CODE[c.code] = c.name; });
 
-  function courseName(code) { return NAME_BY_CODE[code] || ''; }
-
   // -------------------------------------------------------- data selectors
 
-  /** All events for a day belonging to `selected`, chronologically. */
+  /**
+   * All events for a day belonging to `selected`, chronologically.
+   *
+   * Filtering deliberately tests `originalCourse` (the published code) rather
+   * than the possibly-edited one. If you edit a PH3102 class and change its
+   * code to PH4101, the class is still *your* edit of a PH3102 slot, so it
+   * stays visible and manageable while PH3102 is selected instead of silently
+   * vanishing because PH4101 was never selected.
+   */
   function eventsFor(day, selected) {
-    return DATA.events
-      .filter(function (e) { return e.day === day && selected.has(e.course); })
+    return effectiveEvents()
+      .filter(function (e) { return e.day === day && selected.has(e.originalCourse); })
       .sort(function (a, b) {
         return a.minutes - b.minutes ||
                a.course.localeCompare(b.course) ||
@@ -169,8 +371,10 @@
 
   var PIN_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0z"/><circle cx="12" cy="10" r="3"/></svg>';
 
+  var DOTS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.1"/>' +
+    '<circle cx="12" cy="12" r="1.1"/><circle cx="12" cy="19" r="1.1"/></svg>';
+
   function eventHtml(e, status) {
-    var name = courseName(e.course);
     return '' +
       '<article class="event' + (status ? ' is-' + status : '') + '">' +
         '<div class="rail">' +
@@ -182,10 +386,15 @@
             '<span class="code">' + esc(e.course) + '</span>' +
             '<span class="badge ' + e.type + '">' + esc(e.type) + '</span>' +
             (status === 'now' ? '<span class="badge live">Now</span>' : '') +
+            (e.modified ? '<span class="edited-flag">Edited</span>' : '') +
           '</div>' +
-          (name ? '<div class="cname">' + esc(name) + '</div>' : '') +
+          (e.name ? '<div class="cname">' + esc(e.name) + '</div>' : '') +
           '<div class="room">' + PIN_SVG + '<span>' + esc(e.room) + '</span></div>' +
         '</div>' +
+        '<button type="button" class="evt-menu" data-evt="' + esc(e.id) + '" ' +
+          'aria-label="Options for ' + esc(e.course) + ' at ' + esc(e.time) + '">' +
+          DOTS_SVG +
+        '</button>' +
       '</article>';
   }
 
@@ -211,7 +420,7 @@
           '<div class="now-label"><span class="dot"></span>Current class</div>' +
           '<div class="now-course"><span class="now-code">' + esc(e.course) + '</span>' +
             '<span class="badge ' + e.type + '">' + esc(e.type) + '</span></div>' +
-          (courseName(e.course) ? '<div class="now-name">' + esc(courseName(e.course)) + '</div>' : '') +
+          (e.name ? '<div class="now-name">' + esc(e.name) + '</div>' : '') +
           '<div class="now-where">' + PIN_SVG + '<span>' + esc(e.room) + '</span>' +
             '<span>&middot;</span><span>' + esc(e.time) + '</span></div>' +
           '<div class="now-remain">' + esc(humanDuration(info.remaining)) + ' remaining</div>' +
@@ -231,7 +440,7 @@
           '<div class="now-course"><span class="now-code">' + esc(n.time) + '</span>' +
             '<span class="badge ' + n.type + '">' + esc(n.type) + '</span></div>' +
           '<div class="now-name"><strong>' + esc(n.course) + '</strong>' +
-            (courseName(n.course) ? ' &middot; ' + esc(courseName(n.course)) : '') + '</div>' +
+            (n.name ? ' &middot; ' + esc(n.name) : '') + '</div>' +
           '<div class="now-where">' + PIN_SVG + '<span>' + esc(n.room) + '</span></div>' +
           '<div class="now-remain">Starts ' + esc(when) + '</div>' +
           (info.next.length > 1
@@ -249,10 +458,15 @@
     return html;
   }
 
+  function sameEvent(list, e) {
+    for (var i = 0; i < list.length; i++) if (list[i].id === e.id) return true;
+    return false;
+  }
+
   function statusFor(e, info, isToday) {
     if (!isToday) return '';
-    if (info.current.indexOf(e) >= 0) return 'now';
-    if (info.nextOffset === 0 && info.next.indexOf(e) >= 0) return 'next';
+    if (sameEvent(info.current, e)) return 'now';
+    if (info.nextOffset === 0 && sameEvent(info.next, e)) return 'next';
     var nowMin = new Date().getHours() * 60 + new Date().getMinutes();
     return e.minutes + e.duration <= nowMin ? 'past' : '';
   }
@@ -444,6 +658,17 @@
     $('sheet-foot').textContent =
       DATA.events.length + ' events · ' + DATA.courses.length + ' courses · ' +
       DATA.semester + '. Works offline.';
+
+    // Hidden entirely when there is nothing to reset.
+    var c = customCount();
+    var btn = $('reset-changes-btn');
+    btn.hidden = !hasCustomisations();
+    if (!btn.hidden) {
+      var bits = [];
+      if (c.edited) bits.push(plural(c.edited, 'class') + ' edited');
+      if (c.removed) bits.push(plural(c.removed, 'class') + ' removed');
+      $('changes-summary').textContent = bits.join(' · ') + ' - restore the original';
+    }
   }
 
   function closeSheet() {
@@ -453,8 +678,11 @@
 
   var confirmAction = null;
 
-  function openConfirm(onOk) {
-    confirmAction = onOk;
+  function openConfirm(opts) {
+    confirmAction = opts.onOk;
+    $('confirm-title').textContent = opts.title;
+    $('confirm-body').textContent = opts.body;
+    $('confirm-ok').textContent = opts.okLabel || 'Confirm';
     $('confirm-backdrop').hidden = false;
     $('confirm-dialog').hidden = false;
     $('confirm-ok').focus();
@@ -464,6 +692,104 @@
     confirmAction = null;
     $('confirm-backdrop').hidden = true;
     $('confirm-dialog').hidden = true;
+  }
+
+  // ------------------------------------------- single-event actions + editing
+
+  var activeEventId = null;
+
+  function describeEvent(e) {
+    return e.day + ' · ' + e.time + ' · ' + e.course +
+           ' · ' + e.type + ' · ' + e.room;
+  }
+
+  function openEventSheet(id) {
+    var e = effectiveById(id);
+    if (!e) return;
+    activeEventId = id;
+    $('event-sheet-title').textContent = e.course + (e.name ? ' · ' + e.name : '');
+    $('event-sheet-sub').textContent = describeEvent(e);
+    $('event-restore').hidden = !e.modified;
+    $('event-backdrop').hidden = false;
+    $('event-sheet').hidden = false;
+  }
+
+  function closeEventSheet() {
+    activeEventId = null;
+    $('event-backdrop').hidden = true;
+    $('event-sheet').hidden = true;
+  }
+
+  // --- edit dialog
+
+  var editingId = null;
+  var nameTouched = false;
+
+  function openEditSheet(id) {
+    var e = effectiveById(id);
+    if (!e) return;
+    editingId = id;
+    nameTouched = false;
+
+    $('f-day').innerHTML = DAYS.map(function (d) {
+      return '<option value="' + esc(d) + '"' + (d === e.day ? ' selected' : '') + '>' + esc(d) + '</option>';
+    }).join('');
+    $('f-time').value = e.time;
+    $('f-course').value = e.course;
+    $('f-name').value = e.name;
+    $('f-type').value = e.type;
+    $('f-room').value = e.room;
+
+    var orig = originalById(id);
+    $('edit-sub').textContent = orig
+      ? 'Published as ' + describeEvent(orig)
+      : '';
+    showEditError('');
+    $('edit-backdrop').hidden = false;
+    $('edit-sheet').hidden = false;
+  }
+
+  function closeEditSheet() {
+    editingId = null;
+    $('edit-backdrop').hidden = true;
+    $('edit-sheet').hidden = true;
+  }
+
+  function showEditError(msg) {
+    var el = $('edit-error');
+    el.textContent = msg;
+    el.hidden = !msg;
+    $('f-course').setAttribute('aria-invalid', String(/course code/i.test(msg)));
+    $('f-time').setAttribute('aria-invalid', String(/time/i.test(msg)));
+  }
+
+  function submitEdit() {
+    if (!editingId) return;
+
+    var values = {
+      day: $('f-day').value,
+      time: $('f-time').value,
+      course: $('f-course').value.trim().toUpperCase(),
+      name: $('f-name').value.trim(),
+      type: $('f-type').value,
+      room: $('f-room').value.trim()
+    };
+
+    if (!values.course) return showEditError('Enter a course code.');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(values.time)) {
+      return showEditError('Enter a valid start time.');
+    }
+    if (DAYS.indexOf(values.day) < 0) return showEditError('Choose a day.');
+    if (TYPES.indexOf(values.type) < 0) return showEditError('Choose a class type.');
+
+    var id = editingId;
+    if (!saveOverride(id, values)) {
+      toast('Could not save - storage is blocked in this browser');
+    } else {
+      toast(custom.overrides[id] ? 'Changes saved' : 'Class restored to the original');
+    }
+    closeEditSheet();
+    render();
   }
 
   var toastTimer = null;
@@ -570,9 +896,66 @@
       renderWeek();
     });
 
-    // "Choose courses" buttons inside empty states.
+    // Empty-state CTA and the per-event "..." control (both views live here).
     $('main').addEventListener('click', function (e) {
-      if (e.target.closest('[data-action="pick"]')) openPicker(true);
+      if (e.target.closest('[data-action="pick"]')) { openPicker(true); return; }
+      var menu = e.target.closest('[data-evt]');
+      if (menu) openEventSheet(menu.dataset.evt);
+    });
+
+    // --- single-event action sheet
+    $('event-close').addEventListener('click', closeEventSheet);
+    $('event-backdrop').addEventListener('click', closeEventSheet);
+
+    $('event-edit').addEventListener('click', function () {
+      var id = activeEventId;
+      closeEventSheet();
+      openEditSheet(id);
+    });
+
+    $('event-restore').addEventListener('click', function () {
+      var id = activeEventId;
+      closeEventSheet();
+      restoreEvent(id);
+      render();
+      toast('Class restored to the original');
+    });
+
+    $('event-remove').addEventListener('click', function () {
+      var id = activeEventId;
+      var e = effectiveById(id);
+      closeEventSheet();
+      openConfirm({
+        title: 'Remove this class from your timetable?',
+        body: e
+          ? describeEvent(e) + '. Only this class is hidden - ' + e.originalCourse +
+            ' stays selected and its other classes are unaffected.'
+          : 'Only this class is hidden; the course stays selected.',
+        okLabel: 'Remove',
+        onOk: function () {
+          if (!removeEvent(id)) toast('Could not save - storage is blocked in this browser');
+          else toast('Class removed');
+          render();
+        }
+      });
+    });
+
+    // --- edit dialog
+    $('edit-cancel').addEventListener('click', closeEditSheet);
+    $('edit-backdrop').addEventListener('click', closeEditSheet);
+    $('edit-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitEdit();
+    });
+
+    $('f-name').addEventListener('input', function () { nameTouched = true; });
+
+    // Typing a known course code fills in its name, unless the user has already
+    // typed their own name in this dialog.
+    $('f-course').addEventListener('input', function () {
+      if (nameTouched) return;
+      var known = NAME_BY_CODE[$('f-course').value.trim().toUpperCase()];
+      if (known) $('f-name').value = known;
     });
 
     // --- settings
@@ -596,12 +979,37 @@
 
     $('reset-btn').addEventListener('click', function () {
       closeSheet();
-      openConfirm(function () {
-        store.remove(KEY_COURSES);          // only the selection; data stays put
-        state.selected = null;
-        state.view = 'today';
-        openPicker(false);
-        toast('Course selection cleared');
+      openConfirm({
+        title: 'Reset the app?',
+        body: 'This clears your saved course selection and returns you to the ' +
+              'course picker. The timetable data itself stays in the app, and ' +
+              'your timetable changes are kept.',
+        okLabel: 'Reset',
+        onOk: function () {
+          // Only the selection. Timetable customisations live under their own
+          // key and deliberately survive, so re-picking a course brings them
+          // back rather than silently losing the user's work.
+          store.remove(KEY_COURSES);
+          state.selected = null;
+          state.view = 'today';
+          openPicker(false);
+          toast('Course selection cleared');
+        }
+      });
+    });
+
+    $('reset-changes-btn').addEventListener('click', function () {
+      closeSheet();
+      openConfirm({
+        title: 'Reset all timetable changes?',
+        body: 'This will restore all edited and removed classes to the ' +
+              'original timetable. Your selected courses are not affected.',
+        okLabel: 'Reset changes',
+        onOk: function () {
+          resetCustomisations();
+          render();
+          toast('Timetable changes reset');
+        }
       });
     });
 
@@ -616,6 +1024,8 @@
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
       if (!$('confirm-dialog').hidden) closeConfirm();
+      else if (!$('edit-sheet').hidden) closeEditSheet();
+      else if (!$('event-sheet').hidden) closeEventSheet();
       else if (!$('settings-sheet').hidden) closeSheet();
     });
 
@@ -632,6 +1042,16 @@
   // ------------------------------------------------------------------ boot
 
   function init() {
+    // The published timetable is read-only for the lifetime of the app: every
+    // personal change goes through the customisation layer instead. Frozen in
+    // strict mode, so an accidental write throws rather than corrupting data.
+    DATA.events.forEach(function (e) { Object.freeze(e); });
+    Object.freeze(DATA.events);
+    Object.freeze(DATA);
+
+    custom = loadCustom();
+    invalidateEffective();
+
     applyTheme();
     bind();
 
@@ -661,12 +1081,15 @@
     state: state,
     data: DATA,
     eventsFor: eventsFor,
+    effectiveEvents: effectiveEvents,
     computeNow: computeNow,
     teachingDay: teachingDay,
     humanDuration: humanDuration,
     render: render,
+    customCount: customCount,
     KEY_COURSES: KEY_COURSES,
-    KEY_THEME: KEY_THEME
+    KEY_THEME: KEY_THEME,
+    KEY_CUSTOM: KEY_CUSTOM
   };
 
   if (document.readyState === 'loading') {

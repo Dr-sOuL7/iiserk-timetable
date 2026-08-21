@@ -93,6 +93,34 @@ function clockScript(iso) {
     await page.reload();
   }
 
+  /** Read a rendered list as [time, code, type, room, isEdited] rows. */
+  const listRows = (page, sel) => page.$$eval(`${sel} .event`, (els) => els.map((el) => [
+    el.querySelector('.time').textContent.trim(),
+    el.querySelector('.code').textContent.trim(),
+    el.querySelector('.badge').textContent.trim(),
+    el.querySelector('.room span').textContent.trim(),
+    !!el.querySelector('.edited-flag'),
+  ]));
+
+  /** Open the "..." menu of the nth event in a list. */
+  async function openMenu(page, sel, n) {
+    await page.locator(`${sel} .evt-menu`).nth(n).click();
+    await page.waitForSelector('#event-sheet:not([hidden])');
+  }
+
+  const editValues = (page) => page.evaluate(() =>
+    ['f-day', 'f-time', 'f-course', 'f-name', 'f-type', 'f-room']
+      .map((id) => document.getElementById(id).value));
+
+  /** The published event as TIMETABLE_DATA still holds it. */
+  const publishedEvent = (page, id) => page.evaluate((eid) => {
+    const e = window.TIMETABLE_DATA.events.find((x) => x.id === eid);
+    return e ? [e.day, e.time, e.course, e.type, e.room] : null;
+  }, id);
+
+  const MON_PH3102 = 'mon-0950-ph3102-theory-g02';   // Monday 09:50 PH3102 Theory G02
+  const MON_TUT = 'mon-0800-ph3104-tutorial-g08';    // Monday 08:00 PH3104 Tutorial G08
+
   // ============ 1. First launch shows the picker ============
   {
     const ctx = await browser.newContext(ctxOpts);
@@ -564,6 +592,541 @@ function clockScript(iso) {
       return [...new Set(out)];
     });
     eq('consecutive slots leave a 5-minute break', gaps, [5]);
+    await ctx.close();
+  }
+
+  // ============ 9. Edit an individual event ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102', 'MA3101']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('baseline Monday list', await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false]]);
+
+    eq('every event exposes a menu control',
+      await page.locator('#today-list .evt-menu').count(), 3);
+
+    await openMenu(page, '#today-list', 2);
+    check('action sheet names the chosen event',
+      (await page.textContent('#event-sheet-title')).includes('PH3102'));
+    eq('action sheet describes the chosen event',
+      (await page.textContent('#event-sheet-sub')).trim(),
+      'Monday · 09:50 · PH3102 · Theory · G02');
+
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    eq('edit dialog pre-fills the existing values', await editValues(page),
+      ['Monday', '09:50', 'PH3102', 'Quantum Mechanics', 'Theory', 'G02']);
+
+    await page.fill('#f-time', '11:30');
+    await page.fill('#f-room', 'G09');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    eq('edit applies immediately and re-sorts chronologically',
+      await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['11:30', 'PH3102', 'Theory', 'G09', true]]);
+
+    eq('only the changed fields are persisted (sparse patch)',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).overrides),
+      { [MON_PH3102]: { time: '11:30', room: 'G09' } });
+
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('edit survives a reload', await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['11:30', 'PH3102', 'Theory', 'G09', true]]);
+
+    eq('the published timetable is untouched by the edit',
+      await publishedEvent(page, MON_PH3102), ['Monday', '09:50', 'PH3102', 'Theory', 'G02']);
+    check('published data is frozen against writes', await page.evaluate(() => {
+      const e = window.TIMETABLE_DATA.events[0];
+      const before = e.room;
+      try { e.room = 'HACKED'; } catch (err) { /* strict mode throws */ }
+      return e.room === before;
+    }));
+
+    // --- editing type changes the duration
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.selectOption('#f-type', 'Lab');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    eq('changing the type updates the badge and the duration',
+      await page.$$eval('#today-list .event', (els) => {
+        const el = els[els.length - 1];
+        return [el.querySelector('.badge').textContent.trim(),
+                el.querySelector('.dur').textContent.trim()];
+      }), ['Lab', '160 min']);
+
+    // put it back to Theory for the checks that follow
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.selectOption('#f-type', 'Theory');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    await ctx.close();
+  }
+
+  // ============ 10. Cancelling an edit changes nothing ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-time', '06:00');
+    await page.fill('#f-room', 'NOWHERE');
+    await page.click('#edit-cancel');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    eq('cancelling an edit leaves the event untouched',
+      await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false]]);
+    eq('cancelling an edit writes nothing to storage',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+
+    // --- an edit that restores every original value drops the override
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-room', 'G77');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-room', 'G02');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    eq('re-entering the original values clears the override',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+    check('the event is no longer flagged as edited',
+      (await listRows(page, '#today-list'))[2][4] === false);
+    await ctx.close();
+  }
+
+  // ============ 11. Remove an individual event ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // --- cancel is safe
+    await openMenu(page, '#today-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    check('remove asks for confirmation first',
+      /Remove this class/i.test(await page.textContent('#confirm-title')));
+    check('the confirmation says the course stays selected',
+      /stays selected/i.test(await page.textContent('#confirm-body')));
+    await page.click('#confirm-cancel');
+    await page.waitForTimeout(80);
+    eq('cancelling remove keeps the event',
+      (await listRows(page, '#today-list')).length, 3);
+    eq('cancelling remove writes nothing',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+
+    // --- confirmed
+    await openMenu(page, '#today-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+
+    eq('only the chosen event disappears', await listRows(page, '#today-list'),
+      [['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false]]);
+    eq('removing one class does not deselect its course',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
+      ['PH3102', 'PH3104']);
+    eq('the course header still counts the course',
+      (await page.textContent('#semester-label')).trim(), 'Autumn 2026 · 2 courses');
+
+    const week = await page.evaluate(() => {
+      const t = window.__tt;
+      return t.eventsFor('Tuesday', new Set(['PH3104', 'PH3102'])).map((e) => e.time + ' ' + e.course);
+    });
+    eq('other events of the same course survive elsewhere in the week', week,
+      ['08:00 PH3102', '08:55 PH3102', '11:40 PH3104']);
+
+    eq('removal is persisted by id',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).removed),
+      [MON_TUT]);
+    eq('the published timetable still contains the removed class',
+      await publishedEvent(page, MON_TUT), ['Monday', '08:00', 'PH3104', 'Tutorial', 'G08']);
+    await ctx.close();
+  }
+
+  // ============ 12. Day/time move + course-code edge case ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // move Monday 09:50 PH3102 to Tuesday
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.selectOption('#f-day', 'Tuesday');
+    await page.fill('#f-time', '15:00');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    eq('the moved event leaves its old day', await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false]]);
+
+    await page.click('.tab[data-view="week"]');
+    await page.click('#day-chips [data-day="Tuesday"]');
+    await page.waitForTimeout(80);
+    eq('the moved event arrives on its new day, correctly sorted',
+      await listRows(page, '#week-list'),
+      [['08:00', 'PH3102', 'Tutorial', 'G02', false],
+       ['08:55', 'PH3102', 'Theory', 'G02', false],
+       ['11:40', 'PH3104', 'Theory', 'G08', false],
+       ['15:00', 'PH3102', 'Theory', 'G02', true]]);
+
+    // edit a course code to one that is NOT selected
+    await openMenu(page, '#week-list', 3);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-course', 'PH4101');
+    await page.waitForTimeout(60);
+    eq('typing a known code fills in its name',
+      await page.inputValue('#f-name'), 'Condensed Matter Physics');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    const rows = await listRows(page, '#week-list');
+    check('an event edited to an unselected course code stays visible',
+      rows.some((r) => r[1] === 'PH4101' && r[4] === true), JSON.stringify(rows));
+    eq('editing a course code does not change the course selection',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
+      ['PH3102', 'PH3104']);
+    await ctx.close();
+  }
+
+  // ============ 13. Current/next detection uses the modified timetable ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('baseline next class is the published 09:50',
+      (await page.locator('.now-card:not(.live) .now-code').textContent()).trim(), '09:50');
+
+    // move the next class later: it must stay next, with a new countdown
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-time', '10:00');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    eq('next class uses the edited start time',
+      (await page.locator('.now-card:not(.live) .now-code').textContent()).trim(), '10:00');
+    eq('the countdown is recomputed from the edited time',
+      (await page.locator('.now-card:not(.live) .now-remain').textContent()).trim(),
+      'Starts in 50 minutes');
+
+    // remove the upcoming class: the next one must move on
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    const card = (await page.textContent('#now-card')).replace(/\s+/g, ' ');
+    check('a removed class is no longer offered as next',
+      !/10:00/.test(card) && /tomorrow/i.test(card), card.slice(0, 90));
+
+    // remove the class that is running right now
+    await openMenu(page, '#today-list', 1);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    check('a removed class stops counting as the current class',
+      !/Current class/.test(await page.textContent('#now-card')));
+    await ctx.close();
+  }
+
+  // ============ 14. Reset timetable changes ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('reset-changes is hidden when there is nothing to reset',
+      await page.locator('#reset-changes-btn').isHidden());
+    await page.click('#close-settings');
+
+    // make one edit and one removal
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-room', 'G99');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    await openMenu(page, '#today-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+
+    await page.click('#open-settings');
+    check('reset-changes appears once changes exist',
+      await page.locator('#reset-changes-btn').isVisible());
+    check('reset-changes summarises what will be restored',
+      /1 class edited · 1 class removed/.test(await page.textContent('#changes-summary')),
+      (await page.textContent('#changes-summary')).trim());
+
+    // cancel changes nothing
+    await page.click('#reset-changes-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    check('reset-changes asks for confirmation',
+      /Reset all timetable changes/i.test(await page.textContent('#confirm-title')));
+    await page.click('#confirm-cancel');
+    await page.waitForTimeout(80);
+    eq('cancelling reset-changes keeps the customisations',
+      (await listRows(page, '#today-list')).length, 2);
+
+    // confirmed
+    await page.click('#open-settings');
+    await page.click('#reset-changes-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(150);
+
+    eq('reset-changes restores every original event',
+      await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false]]);
+    eq('reset-changes clears the customisation entry',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+    eq('reset-changes leaves the course selection alone',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
+      ['PH3102', 'PH3104']);
+    await ctx.close();
+  }
+
+  // ============ 15. Reset courses and customisations stay separate ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await openMenu(page, '#today-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+
+    await page.click('#open-settings');
+    await page.click('#reset-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    eq('reset courses still clears the selection',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.courses.v1')), null);
+    eq('reset courses does NOT discard timetable customisations',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).removed),
+      [MON_TUT]);
+
+    // re-pick the same course: the customisation is still in force
+    await page.fill('#search', 'PH3104');
+    await page.waitForTimeout(60);
+    await page.click('.course-row[data-code="PH3104"]');
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('re-selecting a course restores its customisations too',
+      await listRows(page, '#today-list'),
+      [['08:55', 'PH3104', 'Theory', 'G08', false]]);
+    await ctx.close();
+  }
+
+  // ============ 16. Malformed / missing storage ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await page.goto(base);
+    await page.evaluate(() => {
+      localStorage.setItem('iiserk.tt.courses.v1', JSON.stringify(['PH3104', 'PH3102']));
+      localStorage.setItem('iiserk.tt.custom.v1', '{not valid json');
+    });
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('corrupt customisation data degrades to no customisations',
+      (await listRows(page, '#today-list')).length, 3);
+
+    await page.evaluate((id) => localStorage.setItem('iiserk.tt.custom.v1', JSON.stringify({
+      version: 1,
+      overrides: {
+        [id]: { time: '25:99', day: 'Funday', type: 'Nonsense', room: 'G07' },
+        'no-such-event-id': { room: 'X' },
+        'bad-patch': 'not an object',
+      },
+      removed: ['no-such-event-either', 42, null],
+    })), MON_PH3102);
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('invalid fields are dropped but valid ones survive',
+      await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G07', true]]);
+    check('unknown event ids are ignored rather than crashing',
+      await page.isVisible('#screen-app'));
+    await ctx.close();
+  }
+
+  // ============ 17. Offline cold start with customisations ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    // register + precache while online
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(async () => {
+      const keys = await caches.keys();
+      if (!keys.length) return false;
+      const c = await caches.open(keys[0]);
+      return (await c.keys()).length >= 9;
+    }, null, { timeout: 15000 });
+
+    for (const code of ['PH3104', 'PH3102']) {
+      await page.fill('#search', code);
+      await page.waitForTimeout(50);
+      await page.click(`.course-row[data-code="${code}"]`);
+    }
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // remove one event, edit another
+    await openMenu(page, '#today-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+
+    await openMenu(page, '#today-list', 1);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-time', '12:00');
+    await page.fill('#f-room', 'G09');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    const expected = [['08:55', 'PH3104', 'Theory', 'G08', false],
+                      ['12:00', 'PH3102', 'Theory', 'G09', true]];
+    eq('changes apply immediately', await listRows(page, '#today-list'), expected);
+
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('changes survive a reload (still online)', await listRows(page, '#today-list'), expected);
+
+    const page2 = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await page2.goto(base);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('changes survive a fresh page', await listRows(page2, '#today-list'), expected);
+    await page2.close();
+
+    // ---- genuinely offline, cold start
+    await ctx.setOffline(true);
+    const cold = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await cold.goto(base);
+    await cold.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
+
+    check('app cold-starts with no network', await cold.isVisible('#screen-app'));
+    eq('offline cold start keeps the removal and the edit',
+      await listRows(cold, '#today-list'), expected);
+    eq('offline Today view reflects the modifications',
+      await cold.locator('#today-list .event .time').allTextContents(), ['08:55', '12:00']);
+
+    await cold.click('.tab[data-view="week"]');
+    await cold.waitForSelector('#view-week:not([hidden])');
+    eq('offline Week view reflects the modifications',
+      await listRows(cold, '#week-list'), expected);
+    eq('offline week counts reflect the modifications',
+      await cold.locator('#day-chips .chip').allTextContents(),
+      ['Mon2', 'Tue3', 'Wed0', 'Thu1', 'Fri1']);
+
+    await cold.click('.tab[data-view="today"]');
+    const offlineCard = (await cold.textContent('#now-card')).replace(/\s+/g, ' ');
+    check('offline current-class detection still works',
+      /Current class/.test(offlineCard) && /PH3104/.test(offlineCard), offlineCard.slice(0, 70));
+    check('offline next-class detection uses the edited time',
+      /12:00/.test(offlineCard), offlineCard.slice(0, 140));
+    eq('offline app still holds the full published dataset',
+      await cold.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+    eq('offline published data is still unmodified',
+      await publishedEvent(cold, MON_PH3102), ['Monday', '09:50', 'PH3102', 'Theory', 'G02']);
+
+    await ctx.setOffline(false);
+    await ctx.close();
+  }
+
+  // ============ 18. Data integrity after customisation ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-time', '08:55');
+    await page.fill('#f-room', 'G08');
+    await page.fill('#f-course', 'PH3104');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    const audit = await page.evaluate(() => {
+      const D = window.TIMETABLE_DATA, t = window.__tt;
+      const eff = t.effectiveEvents();
+      const ids = eff.map((e) => e.id);
+      return {
+        published: D.events.length,
+        effective: eff.length,
+        uniqueIds: new Set(ids).size,
+        publishedIdsUnique: new Set(D.events.map((e) => e.id)).size,
+      };
+    });
+    eq('the published event count is unchanged at 433', audit.published, 433);
+    eq('editing introduces no duplicate events', audit.uniqueIds, audit.effective);
+    eq('published ids remain unique', audit.publishedIdsUnique, 433);
+    check('an edit that collides with another class does not merge them',
+      audit.effective === 433, `${audit.effective} effective events`);
+
+    eq('two classes may now share a slot without being merged',
+      (await listRows(page, '#today-list')).map((r) => r[0] + ' ' + r[1] + ' ' + r[3]),
+      ['08:00 PH3104 G08', '08:55 PH3104 G08', '08:55 PH3104 G08']);
     await ctx.close();
   }
 

@@ -119,7 +119,26 @@ function main() {
     dayIndex(a.day) - dayIndex(b.day) || a.minutes - b.minutes ||
     a.course.localeCompare(b.course) || a.type.localeCompare(b.type) ||
     a.room.localeCompare(b.room));
-  events.forEach((e, i) => { e.id = 'e' + String(i + 1).padStart(4, '0'); });
+
+  // Stable content-derived ids, e.g. "mon-0855-ph3102-theory-g02".
+  //
+  // Deliberately NOT the array index: user customisations are stored against
+  // these ids in localStorage, so an id must keep pointing at the same class
+  // even if the dataset is regenerated, reordered, or has events added or
+  // removed. Every field that distinguishes one event from another takes part,
+  // which is what makes them unique (two classes can share a slot only if they
+  // differ by course, type or room).
+  const slug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const seenIds = new Map();
+  for (const e of events) {
+    e.id = [slug(e.day).slice(0, 3), e.time.replace(':', ''), slug(e.course),
+            slug(e.type), slug(e.room)].join('-');
+    if (seenIds.has(e.id)) {
+      throw new Error(`duplicate event id "${e.id}" - ` +
+        `${JSON.stringify(seenIds.get(e.id))} vs ${JSON.stringify(e)}`);
+    }
+    seenIds.set(e.id, e);
+  }
 
   const courses = [...new Set(events.map((e) => e.course))].sort();
   const catalog = courses.map((code) => ({
@@ -159,6 +178,9 @@ function main() {
     courses: ${JSON.stringify(catalog, null, 6).replace(/\n/g, '\n    ')},
     /**
      * Every timetable event.
+     *   id       - stable content-derived key; user customisations in
+     *                localStorage are stored against it, so it must not change
+     *                for a given class between dataset versions
      *   day      - 'Monday' ... 'Friday'
      *   time     - 24h start time, 'HH:MM'
      *   minutes  - start time as minutes since midnight (sortable)

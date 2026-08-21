@@ -3,6 +3,7 @@
 An offline-first personal class timetable for IISER Kolkata, Autumn 2026.
 Pick your courses once; the app then opens straight to today's classes, tells you
 what is running right now and what is next, and keeps working with no network.
+Individual classes can be edited or removed, and those changes persist offline.
 
 Plain HTML, CSS and vanilla JavaScript. No backend, no database, no login, no
 API, no build step, and no CDN or external font — every byte it needs is in this
@@ -22,7 +23,7 @@ repository.
 | `.nojekyll` | Tells GitHub Pages to serve the files as-is. |
 | `tools/raw/` | The source timetable text and the offered-courses CSV. |
 | `tools/build-data.js` | Regenerates `data/timetable.js` from `tools/raw/`. |
-| `tools/validate-data.js` | 19 checks of the generated data against the raw source. |
+| `tools/validate-data.js` | Data checks of the generated dataset against the raw source. |
 | `tools/make-icons.py` | Regenerates `icons/` (pure Python, no image libraries). |
 | `tests/app.test.js` | End-to-end browser checks (Playwright + headless Chromium). |
 
@@ -60,6 +61,62 @@ relative, so it works from a project subpath such as
 When you change any precached file, bump `CACHE` in `sw.js` (e.g. `...-v1` →
 `...-v2`) so installed copies pick the update up.
 
+## Personal timetable changes
+
+Every class card has a `⋮` control offering **Edit** and **Remove**.
+
+- **Edit** opens a sheet pre-filled with the class's day, start time, course
+  code, course name, type and room. Saving applies immediately and the class
+  re-sorts into its new position (a new day moves it between Today/Week lists).
+- **Remove** hides that one class after a confirmation. The course stays
+  selected and its other classes are untouched.
+- Changed classes are marked **Edited**, and their `⋮` menu gains **Undo my
+  changes** to restore that one class.
+- Settings → **Reset timetable changes** restores everything at once. It is
+  hidden when there is nothing to reset, and is separate from **Reset courses**.
+
+### How it works
+
+`window.TIMETABLE_DATA` is the authoritative published timetable and is never
+written to — it is `Object.freeze`d at start-up. Personal changes are a thin
+layer stored separately:
+
+```
+TIMETABLE_DATA.events        (immutable, 433 published classes)
+       +  overrides          (sparse per-event field patches)
+       -  removed            (ids the user hid)
+       =  effectiveEvents()  ->  course filter  ->  sort  ->  Today / Week / now+next
+```
+
+Everything downstream — Today, Week, current-class, next-class and the
+countdown — reads `effectiveEvents()`, so edits and removals are reflected
+everywhere automatically.
+
+**Stable ids.** Each event carries a content-derived id such as
+`mon-0950-ph3102-theory-g02`, built from day, time, course, type and room —
+never from its array position. Customisations are keyed by that id, so
+regenerating or reordering the dataset does not detach them from their class.
+
+**Sparse patches.** Only fields that differ from the published event are
+stored, so a future dataset that corrects (say) a room still reaches a user who
+had only edited the time. An edit that restores every original value drops the
+override entirely.
+
+### localStorage keys
+
+| Key | Holds |
+| --- | --- |
+| `iiserk.tt.courses.v1` | Selected course codes. |
+| `iiserk.tt.custom.v1` | `{version, overrides: {id: patch}, removed: [id]}`. |
+| `iiserk.tt.theme.v1` | Auto / light / dark. |
+
+They are deliberately separate: **Reset courses** clears only the selection, so
+re-picking a course brings its customisations back rather than silently losing
+them. Malformed, unknown or wrongly-typed stored values are discarded on load,
+so a corrupted entry degrades to "no customisations" instead of breaking the
+app. With no keys set, the app behaves exactly as it did before the feature
+existed.
+
 ## Replacing the timetable
 
 The dataset is deliberately separate from the UI. Either edit
@@ -67,7 +124,7 @@ The dataset is deliberately separate from the UI. Either edit
 
 ```bash
 node tools/build-data.js      # rewrites data/timetable.js
-node tools/validate-data.js   # 19 data checks
+node tools/validate-data.js   # data checks
 ```
 
 …or replace `data/timetable.js` by hand, keeping the shape:
@@ -82,7 +139,7 @@ No UI code needs to change.
 ## Tests
 
 ```bash
-node tools/validate-data.js                       # 19 data checks
+node tools/validate-data.js                       # data checks
 NODE_PATH=$(npm root -g) node tests/app.test.js   # browser checks
 ```
 
@@ -119,4 +176,15 @@ browser context offline to verify the service worker.
 - The selection is stored in `localStorage` under `iiserk.tt.courses.v1`, so it
   is per-browser and per-device, and clearing site data clears it. If storage is
   blocked entirely the app still runs, but the selection will not survive a
-  reload.
+  reload. The same applies to timetable changes.
+- **Editing a class's course code does not move it between courses.** Course
+  filtering deliberately tests the *published* code, so if you edit a PH3102
+  class and set its code to PH4101, it stays visible while PH3102 is selected —
+  it is your edit of a PH3102 slot. This keeps the edit findable and
+  manageable instead of silently vanishing because PH4101 was never selected.
+- **Edits cannot create classes**, only reshape published ones. Adding a class
+  that is not in the timetable is out of scope for this version.
+- Class length follows the (possibly edited) type, so switching a class to Lab
+  gives it the 160-minute duration.
+- Customisations for a class that a future dataset drops are kept in storage but
+  ignored, so they reapply if that class returns.

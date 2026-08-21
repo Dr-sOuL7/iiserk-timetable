@@ -118,9 +118,16 @@
     <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="m9 6 6 6-6 6"/></svg>
   </button>
 
+  <button type="button" id="reset-changes-btn" class="sheet-btn" hidden>
+    <span>
+      <strong>Reset timetable changes</strong>
+      <small id="changes-summary"></small>
+    </span>
+  </button>
+
   <button type="button" id="reset-btn" class="sheet-btn danger">
     <span>
-      <strong>Reset</strong>
+      <strong>Reset courses</strong>
       <small>Clear saved courses and start over</small>
     </span>
   </button>
@@ -133,14 +140,101 @@
 <div id="confirm-backdrop" class="backdrop" hidden></div>
 <div id="confirm-dialog" class="modal" role="alertdialog" aria-modal="true"
      aria-labelledby="confirm-title" aria-describedby="confirm-body" hidden>
-  <h2 id="confirm-title">Reset the app?</h2>
-  <p id="confirm-body">This clears your saved course selection and returns you to the course
-     picker. The timetable data itself stays in the app.</p>
+  <h2 id="confirm-title"></h2>
+  <p id="confirm-body"></p>
   <div class="modal-actions">
     <button type="button" id="confirm-cancel" class="ghost-btn">Cancel</button>
     <button type="button" id="confirm-ok" class="danger-btn">Reset</button>
   </div>
 </div>
+
+<!-- ================= Single-event action sheet ================= -->
+<div id="event-backdrop" class="backdrop" hidden></div>
+<aside id="event-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="event-sheet-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="event-sheet-title">Class</h2>
+  <p class="sheet-sub" id="event-sheet-sub"></p>
+
+  <button type="button" id="event-edit" class="sheet-btn">
+    <span>
+      <strong>Edit</strong>
+      <small>Change the day, time, course, type or room</small>
+    </span>
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="m9 6 6 6-6 6"/></svg>
+  </button>
+
+  <button type="button" id="event-restore" class="sheet-btn" hidden>
+    <span>
+      <strong>Undo my changes</strong>
+      <small>Restore this class to the published timetable</small>
+    </span>
+  </button>
+
+  <button type="button" id="event-remove" class="sheet-btn danger">
+    <span>
+      <strong>Remove</strong>
+      <small>Hide only this class - the course stays selected</small>
+    </span>
+  </button>
+
+  <button type="button" id="event-close" class="ghost-btn">Cancel</button>
+</aside>
+
+<!-- ================= Edit event dialog ================= -->
+<div id="edit-backdrop" class="backdrop" hidden></div>
+<aside id="edit-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="edit-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="edit-title">Edit class</h2>
+  <p class="sheet-sub" id="edit-sub"></p>
+
+  <form id="edit-form" novalidate>
+    <div class="field-row">
+      <label class="field">
+        <span>Day</span>
+        <select id="f-day"></select>
+      </label>
+      <label class="field">
+        <span>Start time</span>
+        <input type="time" id="f-time" required>
+      </label>
+    </div>
+
+    <label class="field">
+      <span>Course code</span>
+      <input type="text" id="f-course" autocomplete="off" autocapitalize="characters"
+             autocorrect="off" spellcheck="false" required>
+    </label>
+
+    <label class="field">
+      <span>Course name</span>
+      <input type="text" id="f-name" autocomplete="off">
+    </label>
+
+    <div class="field-row">
+      <label class="field">
+        <span>Type</span>
+        <select id="f-type">
+          <option value="Theory">Theory</option>
+          <option value="Tutorial">Tutorial</option>
+          <option value="Lab">Lab</option>
+        </select>
+      </label>
+      <label class="field">
+        <span>Room</span>
+        <input type="text" id="f-room" autocomplete="off">
+      </label>
+    </div>
+
+    <p class="field-error" id="edit-error" hidden></p>
+
+    <div class="modal-actions">
+      <button type="button" id="edit-cancel" class="ghost-btn">Cancel</button>
+      <button type="submit" id="edit-save" class="primary-btn wide">Save changes</button>
+    </div>
+  </form>
+</aside>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
