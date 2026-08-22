@@ -72,11 +72,15 @@
    * are stored - so if a future dataset corrects, say, a room, that correction
    * still reaches a user who had only edited the time.
    *
-   * Shape: { version: 1, overrides: { <eventId>: {day,time,course,name,type,room} },
+   * Shape: { version: 1, overrides: { <eventId>: {day,time,course,name,type,room,duration} },
    *          removed: [<eventId>, ...] }
    */
-  var EDITABLE_FIELDS = ['day', 'time', 'course', 'name', 'type', 'room'];
+  var EDITABLE_FIELDS = ['day', 'time', 'course', 'name', 'type', 'room', 'duration'];
   var TYPES = ['Theory', 'Tutorial', 'Lab'];
+  // Sanity bounds on a manually-entered duration, not a claim about any real
+  // class - wide enough for a five-minute check-in or a full-day workshop.
+  var MIN_DURATION_MINUTES = 5;
+  var MAX_DURATION_MINUTES = 600;
 
   var custom = { overrides: {}, removed: [] };
 
@@ -103,6 +107,14 @@
         if (!id || !patch || typeof patch !== 'object' || Array.isArray(patch)) return;
         var clean = {};
         EDITABLE_FIELDS.forEach(function (f) {
+          if (f === 'duration') {
+            var d = patch[f];
+            if (typeof d === 'number' && Number.isInteger(d) &&
+                d >= MIN_DURATION_MINUTES && d <= MAX_DURATION_MINUTES) {
+              clean[f] = d;
+            }
+            return;
+          }
           if (typeof patch[f] === 'string') clean[f] = patch[f];
         });
         if (clean.day && DAYS.indexOf(clean.day) < 0) delete clean.day;
@@ -177,16 +189,20 @@
         day: pick(patch, 'day', o.day),
         time: time,
         minutes: (+parts[0]) * 60 + (+parts[1]),
-        // An unedited event (or one edited in any field but type) keeps the
-        // PUBLISHED duration - almost always the type's standard length, but
-        // some classes (e.g. Wed 13:30 CS2102, a Theory that actually runs a
-        // 160-minute lab-length block) genuinely differ, and that real length
-        // must survive. Only an explicit type edit falls back to the new
-        // type's standard length, since there is no way to guess an exception
-        // for a type the user picked themselves.
-        duration: (patch && has(patch, 'type') && patch.type !== o.type)
-          ? (DATA.durations[type] || o.duration)
-          : o.duration,
+        // Duration precedence, highest first:
+        //   1. an explicit duration override - the user knows better than any
+        //      table and this always wins, even over a built-in exception;
+        //   2. the new type's standard length, but only when the TYPE was
+        //      edited and duration was not - there is no way to guess an
+        //      exception for a type the user picked themselves;
+        //   3. the published duration - almost always the type's standard
+        //      length, but some classes (e.g. Wed 13:30 CS2102, a Theory that
+        //      actually runs a 160-minute lab-length block) genuinely differ,
+        //      and that real length must survive untouched edits.
+        duration: pick(patch, 'duration',
+          (patch && has(patch, 'type') && patch.type !== o.type)
+            ? (DATA.durations[type] || o.duration)
+            : o.duration),
         course: course,
         // With no explicit name override the name tracks the course code, so
         // changing only the code still shows the right title.
@@ -238,10 +254,14 @@
     var orig = originalById(id);
     if (!orig) return false;
 
+    var typeChanged = has(values, 'type') && values.type !== orig.type;
     var patch = {};
     EDITABLE_FIELDS.forEach(function (f) {
       if (!has(values, f)) return;
-      var base = f === 'name' ? (NAME_BY_CODE[values.course || orig.course] || '') : orig[f];
+      var base;
+      if (f === 'name') base = NAME_BY_CODE[values.course || orig.course] || '';
+      else if (f === 'duration') base = typeChanged ? (DATA.durations[values.type] || orig.duration) : orig.duration;
+      else base = orig[f];
       if (values[f] !== base) patch[f] = values[f];
     });
 
@@ -756,12 +776,14 @@
 
   var editingId = null;
   var nameTouched = false;
+  var durationTouched = false;
 
   function openEditSheet(id) {
     var e = effectiveById(id);
     if (!e) return;
     editingId = id;
     nameTouched = false;
+    durationTouched = false;
 
     $('f-day').innerHTML = DAYS.map(function (d) {
       return '<option value="' + esc(d) + '"' + (d === e.day ? ' selected' : '') + '>' + esc(d) + '</option>';
@@ -770,6 +792,7 @@
     $('f-course').value = e.course;
     $('f-name').value = e.name;
     $('f-type').value = e.type;
+    $('f-duration').value = e.duration;
     $('f-room').value = e.room;
 
     var orig = originalById(id);
@@ -793,6 +816,7 @@
     el.hidden = !msg;
     $('f-course').setAttribute('aria-invalid', String(/course code/i.test(msg)));
     $('f-time').setAttribute('aria-invalid', String(/time/i.test(msg)));
+    $('f-duration').setAttribute('aria-invalid', String(/duration/i.test(msg)));
   }
 
   function submitEdit() {
@@ -804,7 +828,8 @@
       course: $('f-course').value.trim().toUpperCase(),
       name: $('f-name').value.trim(),
       type: $('f-type').value,
-      room: $('f-room').value.trim()
+      room: $('f-room').value.trim(),
+      duration: parseInt($('f-duration').value, 10)
     };
 
     if (!values.course) return showEditError('Enter a course code.');
@@ -813,6 +838,11 @@
     }
     if (DAYS.indexOf(values.day) < 0) return showEditError('Choose a day.');
     if (TYPES.indexOf(values.type) < 0) return showEditError('Choose a class type.');
+    if (!Number.isInteger(values.duration) ||
+        values.duration < MIN_DURATION_MINUTES || values.duration > MAX_DURATION_MINUTES) {
+      return showEditError('Enter a duration between ' + MIN_DURATION_MINUTES +
+        ' and ' + MAX_DURATION_MINUTES + ' minutes.');
+    }
 
     var id = editingId;
     if (!saveOverride(id, values)) {
@@ -988,6 +1018,17 @@
       if (nameTouched) return;
       var known = NAME_BY_CODE[$('f-course').value.trim().toUpperCase()];
       if (known) $('f-name').value = known;
+    });
+
+    $('f-duration').addEventListener('input', function () { durationTouched = true; });
+
+    // Picking a new type fills in that type's standard duration, unless the
+    // user has already typed their own duration in this dialog - the same
+    // "don't clobber an explicit edit" rule as the course-name autofill above.
+    $('f-type').addEventListener('change', function () {
+      if (durationTouched) return;
+      var std = DATA.durations[$('f-type').value];
+      if (std) $('f-duration').value = std;
     });
 
     // --- settings

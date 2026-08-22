@@ -225,10 +225,15 @@
         </select>
       </label>
       <label class="field">
-        <span>Room</span>
-        <input type="text" id="f-room" autocomplete="off">
+        <span>Duration (min)</span>
+        <input type="number" id="f-duration" inputmode="numeric" min="5" max="600" required>
       </label>
     </div>
+
+    <label class="field">
+      <span>Room</span>
+      <input type="text" id="f-room" autocomplete="off">
+    </label>
 
     <p class="field-error" id="edit-error" hidden></p>
 

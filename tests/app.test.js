@@ -109,7 +109,7 @@ function clockScript(iso) {
   }
 
   const editValues = (page) => page.evaluate(() =>
-    ['f-day', 'f-time', 'f-course', 'f-name', 'f-type', 'f-room']
+    ['f-day', 'f-time', 'f-course', 'f-name', 'f-type', 'f-duration', 'f-room']
       .map((id) => document.getElementById(id).value));
 
   /** The published event as TIMETABLE_DATA still holds it. */
@@ -622,7 +622,7 @@ function clockScript(iso) {
     await page.click('#event-edit');
     await page.waitForSelector('#edit-sheet:not([hidden])');
     eq('edit dialog pre-fills the existing values', await editValues(page),
-      ['Monday', '09:50', 'PH3102', 'Quantum Mechanics', 'Theory', 'G02']);
+      ['Monday', '09:50', 'PH3102', 'Quantum Mechanics', 'Theory', '50', 'G02']);
 
     await page.fill('#f-time', '11:30');
     await page.fill('#f-room', 'G09');
@@ -1041,6 +1041,7 @@ function clockScript(iso) {
     await page.waitForSelector('#edit-sheet:not([hidden])');
     await page.fill('#f-time', '12:00');
     await page.fill('#f-room', 'G09');
+    await page.fill('#f-duration', '80');
     await page.click('#edit-save');
     await page.waitForSelector('#edit-sheet', { state: 'hidden' });
 
@@ -1069,6 +1070,8 @@ function clockScript(iso) {
       await listRows(cold, '#today-list'), expected);
     eq('offline Today view reflects the modifications',
       await cold.locator('#today-list .event .time').allTextContents(), ['08:55', '12:00']);
+    eq('offline cold start keeps the manually-edited duration too',
+      await cold.locator('#today-list .event .dur').last().textContent(), '80 min');
 
     await cold.click('.tab[data-view="week"]');
     await cold.waitForSelector('#view-week:not([hidden])');
@@ -1299,6 +1302,198 @@ function clockScript(iso) {
       /Current class/.test((await page3.textContent('#now-card'))));
     await ctx2.close();
     await ctx3.close();
+    await ctx.close();
+  }
+
+  // ============ 20b. Opening Edit on the CS2102 exception shows its real 160 ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['CS2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+    await page.click('.tab[data-view="week"]');
+    await page.click('#day-chips [data-day="Wednesday"]');
+    await page.waitForTimeout(80);
+    await openMenu(page, '#week-list', 0);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    eq('editing the CS2102 exception prefills its real 160-minute duration',
+      await page.inputValue('#f-duration'), '160');
+    await ctx.close();
+  }
+
+  // ============ 21. Duration is directly editable ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['PH3104', 'PH3102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // --- editing duration alone, with the type left untouched
+    await openMenu(page, '#today-list', 2);   // 09:50 PH3102 Theory G02
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-duration', '90');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    eq('the card shows the manually-set duration',
+      await page.$$eval('#today-list .event', (els) =>
+        els[els.length - 1].querySelector('.dur').textContent.trim()),
+      '90 min');
+    eq('only duration is persisted - type/room stay implicit from the original',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).overrides),
+      { [MON_PH3102]: { duration: 90 } });
+    check('the class is flagged as edited', await page.$$eval('#today-list .event', (els) =>
+      !!els[els.length - 1].querySelector('.edited-flag')));
+
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('the manual duration survives a reload',
+      await page.$$eval('#today-list .event', (els) =>
+        els[els.length - 1].querySelector('.dur').textContent.trim()),
+      '90 min');
+
+    // Reopening the dialog must show the customised value, not the original.
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    eq('the edit dialog re-prefills the customised duration', await page.inputValue('#f-duration'), '90');
+
+    // --- re-entering the original duration clears the override entirely
+    await page.fill('#f-duration', '50');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    eq('restoring the original duration drops the override',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+
+    // --- changing type still auto-fills the standard duration for that type
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.selectOption('#f-type', 'Lab');
+    eq('picking a new type live-updates the duration field', await page.inputValue('#f-duration'), '160');
+    await page.click('#edit-cancel');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    // --- but an explicit duration edit is never clobbered by a later type change
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-duration', '75');
+    await page.selectOption('#f-type', 'Lab');
+    eq('a manually-entered duration is not overwritten by a type change',
+      await page.inputValue('#f-duration'), '75');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    eq('both the type and the explicit duration are persisted',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).overrides),
+      { [MON_PH3102]: { type: 'Lab', duration: 75 } });
+
+    // restore for the checks that follow
+    await openMenu(page, '#today-list', 2);
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.selectOption('#f-type', 'Theory');
+    await page.fill('#f-duration', '50');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    // --- validation rejects nonsense without saving
+    for (const bad of ['0', '-5', '4', '601', '']) {
+      await openMenu(page, '#today-list', 2);
+      await page.click('#event-edit');
+      await page.waitForSelector('#edit-sheet:not([hidden])');
+      await page.fill('#f-duration', bad);
+      await page.click('#edit-save');
+      await page.waitForTimeout(80);
+      check(`duration "${bad}" is rejected`, await page.isVisible('#edit-sheet'));
+      check(`duration "${bad}" shows an error`, await page.isVisible('#edit-error'));
+      await page.click('#edit-cancel');
+      await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+    }
+    eq('no invalid duration was ever saved',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+    await ctx.close();
+  }
+
+  // ============ 22. Duration edits reach current/next detection ============
+  {
+    // Shrink the running class: it should end, and stop being "current", at
+    // its new, shorter length rather than the published 50 minutes.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });   // Mon 09:10, 15 min into 08:55 PH3104
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await openMenu(page, '#today-list', 1);   // 08:55 PH3104 Theory G08
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-duration', '10');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    check('shrinking the running class ends it at its new, shorter length',
+      !/Current class/.test(await page.textContent('#now-card')));
+    await ctx.close();
+
+    // Extend a class: it should still read as current well past where the
+    // published 50-minute length would have ended it (08:55 + 50 = 09:45).
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-08-24T10:00:00' });   // Mon 10:00, 65 min into 08:55 PH3104
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+
+    await openMenu(page2, '#today-list', 1);
+    await page2.click('#event-edit');
+    await page2.waitForSelector('#edit-sheet:not([hidden])');
+    await page2.fill('#f-duration', '120');
+    await page2.click('#edit-save');
+    await page2.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    const card = (await page2.textContent('#now-card')).replace(/\s+/g, ' ');
+    check('extending a class keeps it current past its original 50-minute end',
+      /Current class/.test(card));
+    check('remaining time reflects the new, longer duration',
+      /55 minutes remaining/.test(card), card.slice(0, 80));
+    await ctx2.close();
+  }
+
+  // ============ 23. Malformed duration in stored overrides ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await page.goto(base);
+    await page.evaluate((id) => {
+      localStorage.setItem('iiserk.tt.courses.v1', JSON.stringify(['PH3104']));
+      localStorage.setItem('iiserk.tt.custom.v1', JSON.stringify({
+        version: 1,
+        overrides: {
+          [id]: { room: 'G09', duration: '90' },   // string, not a number
+        },
+        removed: [],
+      }));
+    }, MON_TUT);
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('a non-numeric stored duration is dropped, sibling fields survive',
+      await page.$$eval('#today-list .event', (els) => [
+        els[0].querySelector('.dur').textContent.trim(),
+        els[0].querySelector('.room span').textContent.trim(),
+      ]), ['50 min', 'G09']);
+
+    for (const bad of [1.5, 0, -10, 601, 100000]) {
+      await page.evaluate((args) => {
+        localStorage.setItem('iiserk.tt.custom.v1', JSON.stringify({
+          version: 1, overrides: { [args.id]: { duration: args.bad } }, removed: [],
+        }));
+      }, { id: MON_TUT, bad });
+      await page.reload();
+      await page.waitForSelector('#screen-app:not([hidden])');
+      eq(`out-of-range/non-integer stored duration ${bad} is dropped`,
+        await page.$$eval('#today-list .event', (els) => els[0].querySelector('.dur').textContent.trim()),
+        '50 min');
+    }
     await ctx.close();
   }
 

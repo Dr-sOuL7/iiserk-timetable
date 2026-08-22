@@ -66,8 +66,9 @@ When you change any precached file, bump `CACHE` in `sw.js` (e.g. `...-v1` →
 Every class card has a `⋮` control offering **Edit** and **Remove**.
 
 - **Edit** opens a sheet pre-filled with the class's day, start time, course
-  code, course name, type and room. Saving applies immediately and the class
-  re-sorts into its new position (a new day moves it between Today/Week lists).
+  code, course name, type, duration and room. Saving applies immediately and
+  the class re-sorts into its new position (a new day moves it between
+  Today/Week lists).
 - **Remove** hides that one class after a confirmation. The course stays
   selected and its other classes are untouched.
 - Changed classes are marked **Edited**, and their `⋮` menu gains **Undo my
@@ -102,6 +103,14 @@ stored, so a future dataset that corrects (say) a room still reaches a user who
 had only edited the time. An edit that restores every original value drops the
 override entirely.
 
+**Duration.** Every class has an editable duration (5-600 minutes), prefilled
+with its real current length — the type's standard length, or a published
+exception such as Wed 13:30 CS2102 (see Limitations below). Changing a class's
+Type without touching Duration auto-fills that type's standard length, the
+same way Course Name auto-fills from Course Code; once you type your own
+duration, a later Type change never overwrites it. Current/next-class
+detection and the countdown always use this real, possibly-edited length.
+
 ### localStorage keys
 
 | Key | Holds |
@@ -130,9 +139,11 @@ node tools/validate-data.js   # data checks
 …or replace `data/timetable.js` by hand, keeping the shape:
 
 ```js
-{ id: 'e0001', day: 'Monday', time: '08:55', minutes: 535,
-  duration: 55, course: 'PH3104', type: 'Theory', room: 'G08' }
+{ id: 'mon-0855-ph3104-theory-g08', day: 'Monday', time: '08:55', minutes: 535,
+  duration: 50, course: 'PH3104', type: 'Theory', room: 'G08' }
 ```
+
+`id` must be stable across regenerations — see "Stable ids" above — and unique.
 
 No UI code needs to change.
 
@@ -184,7 +195,12 @@ browser context offline to verify the service worker.
   manageable instead of silently vanishing because PH4101 was never selected.
 - **Edits cannot create classes**, only reshape published ones. Adding a class
   that is not in the timetable is out of scope for this version.
-- Class length follows the (possibly edited) type, so switching a class to Lab
-  gives it the 160-minute duration.
+- **Wed 13:30 CS2102 (Data Structures and Algorithms)** is published as
+  Theory but genuinely runs 160 minutes — a documented, deliberate exception
+  to the standard 50-minute Theory/Tutorial length (`tools/build-data.js`,
+  `DURATION_OVERRIDES`). Duration follows the published class, including this
+  exception, unless you explicitly edit either Duration or Type; switching a
+  class's Type to Lab without touching Duration gives it the standard
+  160-minute length rather than any published exception for the old type.
 - Customisations for a class that a future dataset drops are kept in storage but
   ignored, so they reapply if that class returns.
