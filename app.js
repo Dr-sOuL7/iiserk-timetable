@@ -177,9 +177,16 @@
         day: pick(patch, 'day', o.day),
         time: time,
         minutes: (+parts[0]) * 60 + (+parts[1]),
-        // Length follows the (possibly edited) type, so switching Theory -> Lab
-        // gives the class the right duration.
-        duration: DATA.durations[type] || o.duration,
+        // An unedited event (or one edited in any field but type) keeps the
+        // PUBLISHED duration - almost always the type's standard length, but
+        // some classes (e.g. Wed 13:30 CS2102, a Theory that actually runs a
+        // 160-minute lab-length block) genuinely differ, and that real length
+        // must survive. Only an explicit type edit falls back to the new
+        // type's standard length, since there is no way to guess an exception
+        // for a type the user picked themselves.
+        duration: (patch && has(patch, 'type') && patch.type !== o.type)
+          ? (DATA.durations[type] || o.duration)
+          : o.duration,
         course: course,
         // With no explicit name override the name tracks the course code, so
         // changing only the code still shows the right title.

@@ -872,7 +872,7 @@
       {"id":"wed-1140-ma5125-theory-211","day":"Wednesday","time":"11:40","minutes":700,"duration":50,"course":"MA5125","type":"Theory","room":"211"},
       {"id":"wed-1140-ph4113-theory-g08","day":"Wednesday","time":"11:40","minutes":700,"duration":50,"course":"PH4113","type":"Theory","room":"G08"},
       {"id":"wed-1330-ch2103-lab-dcs-2nd-year-lab","day":"Wednesday","time":"13:30","minutes":810,"duration":160,"course":"CH2103","type":"Lab","room":"DCS 2nd Year Lab"},
-      {"id":"wed-1330-cs2102-theory-ramanujan-virtual-classroom","day":"Wednesday","time":"13:30","minutes":810,"duration":50,"course":"CS2102","type":"Theory","room":"Ramanujan Virtual Classroom"},
+      {"id":"wed-1330-cs2102-theory-ramanujan-virtual-classroom","day":"Wednesday","time":"13:30","minutes":810,"duration":160,"course":"CS2102","type":"Theory","room":"Ramanujan Virtual Classroom"},
       {"id":"wed-1330-cs3102-lab-computer-lab-2","day":"Wednesday","time":"13:30","minutes":810,"duration":160,"course":"CS3102","type":"Lab","room":"Computer Lab 2"},
       {"id":"wed-1330-es2105-lab-des-2nd-year-lab","day":"Wednesday","time":"13:30","minutes":810,"duration":160,"course":"ES2105","type":"Lab","room":"DES 2nd Year Lab"},
       {"id":"wed-1330-ls2102-lab-dbs-2nd-year-lab","day":"Wednesday","time":"13:30","minutes":810,"duration":160,"course":"LS2102","type":"Lab","room":"DBS 2nd Year Lab"},

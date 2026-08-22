@@ -164,5 +164,29 @@ check('every event day is Monday-Friday',
 check('every event has a positive duration',
   DATA.events.every((e) => Number.isInteger(e.duration) && e.duration > 0));
 
+// 10. Known duration exceptions: events whose duration deliberately differs
+// from their type's standard length (tools/build-data.js DURATION_OVERRIDES).
+// Confirms the override applied to the right event AND that it stayed the
+// only exception - a second Theory/Tutorial event drifting off 50, or a Lab
+// off 160, would mean an override leaked or the standard grid broke.
+{
+  const STANDARD = DATA.durations;
+  const exceptions = DATA.events.filter((e) => e.duration !== STANDARD[e.type]);
+  check('Wednesday 13:30 CS2102 is the sole duration exception, at 160 min',
+    exceptions.length === 1 && exceptions[0].id === 'wed-1330-cs2102-theory-ramanujan-virtual-classroom' &&
+    exceptions[0].duration === 160,
+    JSON.stringify(exceptions.map((e) => [e.id, e.duration])));
+  check('the CS2102 duration exception keeps its published Theory type',
+    (() => {
+      const e = DATA.events.find((x) => x.id === 'wed-1330-cs2102-theory-ramanujan-virtual-classroom');
+      return e && e.type === 'Theory';
+    })());
+  check('the other CS2102 class (Monday) is unaffected',
+    (() => {
+      const e = DATA.events.find((x) => x.id === 'mon-1520-cs2102-theory-ramanujan-virtual-classroom');
+      return e && e.duration === 50;
+    })());
+}
+
 console.log(`\n${failures === 0 ? 'ALL DATA CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

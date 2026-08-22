@@ -574,9 +574,11 @@ function clockScript(iso) {
       D.events.forEach((e) => { (by[e.type] = by[e.type] || new Set()).add(e.duration); });
       return Object.fromEntries(Object.entries(by).map(([k, v]) => [k, [...v]]));
     });
-    eq('classes are 50 minutes and labs 160',
-      Object.keys(durations).sort().map((k) => [k, durations[k]]),
-      [['Lab', [160]], ['Theory', [50]], ['Tutorial', [50]]]);
+    // Theory carries two lengths: the standard 50, and the Wed 13:30 CS2102
+    // duration exception at 160 (still typed Theory - see build-data.js).
+    eq('classes are 50 minutes, labs 160, with CS2102\'s one documented exception',
+      Object.keys(durations).sort().map((k) => [k, durations[k].sort((a, b) => a - b)]),
+      [['Lab', [160]], ['Theory', [50, 160]], ['Tutorial', [50]]]);
 
     // The 55-minute slot step minus a 50-minute class is the 5-minute break.
     const gaps = await page.evaluate(() => {
@@ -1244,6 +1246,60 @@ function clockScript(iso) {
     check('the day selector stays pinned while the week list scrolls',
       scrolled > 0 && Math.abs(yAfter - yBefore) < 2, `scrolled ${scrolled}px, moved ${Math.abs(yAfter - yBefore)}px`);
     await ctx4.close();
+  }
+
+  // ============ 20. CS2102's duration exception renders correctly ============
+  {
+    // Wednesday 13:30 CS2102 is published as Theory but genuinely runs 160
+    // minutes (a full lab-length block), confirmed against the real schedule.
+    // Everything downstream - the card, current/next detection, the countdown
+    // - must use that real length, not the standard 50-minute Theory duration.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-24T09:10:00' });
+    await seed(page, ['CS2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('.tab[data-view="week"]');
+    await page.click('#day-chips [data-day="Wednesday"]');
+    await page.waitForTimeout(80);
+    eq('CS2102 shows 160 min on its card, still badged Theory',
+      await page.$$eval('#week-list .event', (els) => els.map((el) => [
+        el.querySelector('.time').textContent.trim(),
+        el.querySelector('.dur').textContent.trim(),
+        el.querySelector('.badge').textContent.trim(),
+      ])),
+      [['13:30', '160 min', 'Theory']]);
+
+    // The Monday CS2102 (a genuinely different, unexceptional class) stays 50.
+    await page.click('#day-chips [data-day="Monday"]');
+    await page.waitForTimeout(80);
+    eq('the other CS2102 class (Monday) keeps the standard 50 min',
+      await page.$$eval('#week-list .event', (els) => els.map((el) =>
+        el.querySelector('.dur').textContent.trim())),
+      ['50 min']);
+
+    // Mid-way through the 160-minute block, it must still read as current.
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-08-26T15:30:00' });   // Wed 15:30, 2h in
+    await seed(page2, ['CS2102']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    const card = (await page2.textContent('#now-card')).replace(/\s+/g, ' ');
+    check('120 minutes into the 160-minute block it still reads as current',
+      /Current class/.test(card) && /CS2102/.test(card));
+    check('remaining time reflects the real 160-minute length, not 50',
+      /40 minutes remaining/.test(card), card.slice(0, 90));
+
+    // At the point a standard 50-minute Theory class would have already
+    // ended (80 minutes in), the real 160-minute block is still running.
+    const ctx3 = await browser.newContext(ctxOpts);
+    const page3 = await newPage(ctx3, { clock: '2026-08-26T14:50:00' });   // Wed 14:50, 80 min in
+    await seed(page3, ['CS2102']);
+    await page3.waitForSelector('#screen-app:not([hidden])');
+    check('80 minutes in - past a standard Theory class\'s end - it is still current',
+      /Current class/.test((await page3.textContent('#now-card'))));
+    await ctx2.close();
+    await ctx3.close();
+    await ctx.close();
   }
 
   await browser.close();

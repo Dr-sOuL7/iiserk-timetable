@@ -25,6 +25,19 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 // Labs run 160 minutes. Change these numbers to change every duration in the app.
 const DURATION_MINUTES = { Theory: 50, Tutorial: 50, Lab: 160 };
 
+// One-off exceptions to the standard per-type duration above: classes that run
+// longer or shorter than their own type would suggest, confirmed against the
+// real schedule rather than the published slot grid. Type is left as published
+// (this is a length exception, not a reclassification) - see the Wednesday
+// CS2102 entry below, which is timetabled as Theory but actually runs a full
+// 160-minute lab-length block. Matched on every identifying field so a source
+// change that moves or removes the line fails the build instead of silently
+// doing nothing.
+const DURATION_OVERRIDES = [
+  { day: 'Wednesday', time: '13:30', course: 'CS2102', type: 'Theory',
+    room: 'Ramanujan Virtual Classroom', duration: 160 },
+];
+
 const DAY_HEADER = /^([A-Za-z]+day)\s*-\s*$/;
 const EVENT = /^\s*\*\s*(.+?)\s*:\s*([A-Z]{2}\d{4})\s*(\(Tut\))?\s*\[(.+?)\]\s*\((Theory|Lab|Tut|Tutorial)\)\s*$/;
 const TIME = /^(\d{1,2})(?::(\d{2}))?\s*(a\.m\.|p\.m\.)?$/i;
@@ -112,6 +125,17 @@ function parseCourses(text) {
 function main() {
   const events = parseTimetable(fs.readFileSync(RAW_TIMETABLE, 'utf8'));
   const names = parseCourses(fs.readFileSync(RAW_COURSES, 'utf8'));
+
+  for (const o of DURATION_OVERRIDES) {
+    const matches = events.filter((e) =>
+      e.day === o.day && e.time === o.time && e.course === o.course &&
+      e.type === o.type && e.room === o.room);
+    if (matches.length !== 1) {
+      throw new Error(`duration override matched ${matches.length} event(s), expected 1: ` +
+        JSON.stringify(o));
+    }
+    matches[0].duration = o.duration;
+  }
 
   // Stable ordering: day, then start time, then course, then type, then room.
   const dayIndex = (d) => DAYS.indexOf(d);
