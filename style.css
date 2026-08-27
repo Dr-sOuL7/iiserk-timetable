@@ -470,6 +470,10 @@ svg {
   background: var(--live-soft);
   box-shadow: none;
 }
+/* Holiday notices: a calm accent border only (no fill) - noticeable without
+   reading as an alert. Same treatment for "holiday today" and "tomorrow is a
+   holiday"; the label text is what tells them apart. */
+.now-card.holiday { border-color: var(--accent); }
 
 .now-label {
   display: flex;
@@ -482,6 +486,14 @@ svg {
   color: var(--text-faint);
 }
 .now-card.live .now-label { color: var(--live); }
+.now-card.holiday .now-label { color: var(--accent-text); }
+
+.holiday-name {
+  font-size: var(--fs-title);
+  font-weight: 700;
+  letter-spacing: -.01em;
+  margin-top: 5px;
+}
 .dot {
   width: 7px;
   height: 7px;

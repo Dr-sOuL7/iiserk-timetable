@@ -11,10 +11,58 @@
   var DATA = window.TIMETABLE_DATA;
   var DAYS = DATA.days;
   var WEEKDAY_NAMES = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  var MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December'];
   var DEPT_LABELS = {
     CH: 'Chemistry', CS: 'Computer Science', ES: 'Earth Science', HU: 'Humanities',
     LS: 'Life Science', MA: 'Mathematics', PH: 'Physics'
   };
+
+  // ------------------------------------------------------------- holidays
+  //
+  // A Today-tab-only presentation layer. data/holidays.js (window.HOLIDAY_DATA)
+  // is a separate, hand-maintained file - never merged into TIMETABLE_DATA,
+  // never used to filter or alter timetable events, and never read by the
+  // Week view. Swapping academic years means replacing that one file.
+  var HOLIDAYS = window.HOLIDAY_DATA || [];
+  var HOLIDAY_BY_DATE = {};
+  HOLIDAYS.forEach(function (h) { HOLIDAY_BY_DATE[h.date] = h; });
+
+  /**
+   * "YYYY-MM-DD" from a JS Date using its LOCAL calendar fields.
+   * Deliberately NOT toISOString() (which is UTC) - that could shift the
+   * matched date by a day for an Indian user (UTC+5:30), e.g. treating
+   * 00:15 IST on 15 Aug as still "14 Aug" and missing Independence Day.
+   */
+  function localDateKey(date) {
+    var y = date.getFullYear();
+    var m = String(date.getMonth() + 1).padStart(2, '0');
+    var d = String(date.getDate()).padStart(2, '0');
+    return y + '-' + m + '-' + d;
+  }
+
+  /** The holiday on `date`'s local calendar day, or null. Year-agnostic: a
+   * date outside the loaded dataset (any year not currently maintained)
+   * simply is not a holiday. */
+  function holidayOn(date) {
+    return HOLIDAY_BY_DATE[localDateKey(date)] || null;
+  }
+
+  /**
+   * Today/tomorrow holiday status for the Today tab. Independent of
+   * `computeNow()` on purpose: Week view's current/next-class highlighting
+   * must stay byte-for-byte unchanged, so this never touches that function
+   * or any shared selector - only renderToday() consumes it.
+   */
+  function holidayContext(now) {
+    var today = holidayOn(now);
+    var tomorrowDate = new Date(now.getTime());
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    // Only worth surfacing "tomorrow" when today itself isn't already the
+    // headline state - otherwise the two notices would just duplicate.
+    var tomorrow = today ? null : holidayOn(tomorrowDate);
+    return { today: today, tomorrow: tomorrow, tomorrowDate: tomorrowDate };
+  }
 
   var KEY_COURSES = 'iiserk.tt.courses.v1';
   var KEY_THEME = 'iiserk.tt.theme.v1';
@@ -437,6 +485,39 @@
       '</div>';
   }
 
+  /**
+   * Today itself is a holiday. This fully REPLACES the current/next card and
+   * the day's class list (below, in renderToday()) - showing a "Next class"
+   * next to it would misleadingly suggest something is happening today.
+   */
+  function holidayTodayCardHtml(h) {
+    return '' +
+      '<div class="now-card holiday">' +
+        '<div class="now-label">Holiday today</div>' +
+        '<div class="holiday-name">' + esc(h.name) + '</div>' +
+        '<div class="now-empty">No regular classes today.</div>' +
+      '</div>';
+  }
+
+  /**
+   * Today is a normal day but tomorrow is a holiday. Compact, and placed
+   * ABOVE the normal current/next card - it never replaces today's classes.
+   */
+  function holidayTomorrowCardHtml(h, date) {
+    // Built from fixed name tables, not toLocaleDateString(): the required
+    // wording is "Saturday, 15 August" (day before month, no year), and
+    // Intl's day/month ordering for a given locale tag is not guaranteed
+    // consistent across browser engines - confirmed different between Node's
+    // and Chromium's ICU for the same 'en-IN' tag. This is deterministic.
+    var when = WEEKDAY_NAMES[date.getDay()] + ', ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
+    return '' +
+      '<div class="now-card holiday">' +
+        '<div class="now-label">Tomorrow is a holiday</div>' +
+        '<div class="holiday-name">' + esc(h.name) + '</div>' +
+        '<div class="now-empty">' + esc(when) + '</div>' +
+      '</div>';
+  }
+
   function nowCardHtml(info) {
     if (!state.selected.size) return '';
     var html = '';
@@ -526,12 +607,24 @@
   function renderToday() {
     var now = new Date();
     var info = computeNow(state.selected, now);
+    var hol = holidayContext(now);
 
     $('date-line').textContent = now.toLocaleDateString(undefined, {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
 
-    $('now-card').innerHTML = nowCardHtml(info);
+    // Holiday-today replaces the current/next card outright (never alongside
+    // it - that would risk implying a class is still imminent). Holiday
+    // notices are date-only and shown regardless of course selection, the
+    // same way the date line above is; nowCardHtml() already no-ops itself
+    // when no courses are selected.
+    if (hol.today) {
+      $('now-card').innerHTML = holidayTodayCardHtml(hol.today);
+    } else if (hol.tomorrow) {
+      $('now-card').innerHTML = holidayTomorrowCardHtml(hol.tomorrow, hol.tomorrowDate) + nowCardHtml(info);
+    } else {
+      $('now-card').innerHTML = nowCardHtml(info);
+    }
 
     var list = $('today-list');
     if (!state.selected.size) {
@@ -544,6 +637,17 @@
     }
 
     $('today-head').hidden = false;
+
+    // Holiday takes precedence over the weekend check below - Independence
+    // Day (a Saturday in 2026) must read as a holiday, not "it's the
+    // weekend", and this branch fires regardless of whether the date is a
+    // weekday or weekend (holidayOn() only ever looks at the calendar date).
+    if (hol.today) {
+      $('today-head').textContent = info.today || WEEKDAY_NAMES[now.getDay()];
+      list.innerHTML = emptyHtml('No classes today',
+        hol.today.name + ' - no regular classes are scheduled.');
+      return;
+    }
     if (!info.today) {
       $('today-head').textContent = 'Today';
       list.innerHTML = emptyHtml('It\'s the weekend',
@@ -1160,6 +1264,10 @@
     humanDuration: humanDuration,
     render: render,
     customCount: customCount,
+    localDateKey: localDateKey,
+    holidayOn: holidayOn,
+    holidayContext: holidayContext,
+    holidays: HOLIDAYS,
     KEY_COURSES: KEY_COURSES,
     KEY_THEME: KEY_THEME,
     KEY_CUSTOM: KEY_CUSTOM

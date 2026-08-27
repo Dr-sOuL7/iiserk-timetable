@@ -1283,7 +1283,7 @@ function clockScript(iso) {
 
     // Mid-way through the 160-minute block, it must still read as current.
     const ctx2 = await browser.newContext(ctxOpts);
-    const page2 = await newPage(ctx2, { clock: '2026-08-26T15:30:00' });   // Wed 15:30, 2h in
+    const page2 = await newPage(ctx2, { clock: '2026-09-02T15:30:00' });   // Wed 15:30, 2h in (a Wed with no holiday nearby)
     await seed(page2, ['CS2102']);
     await page2.waitForSelector('#screen-app:not([hidden])');
     const card = (await page2.textContent('#now-card')).replace(/\s+/g, ' ');
@@ -1295,7 +1295,7 @@ function clockScript(iso) {
     // At the point a standard 50-minute Theory class would have already
     // ended (80 minutes in), the real 160-minute block is still running.
     const ctx3 = await browser.newContext(ctxOpts);
-    const page3 = await newPage(ctx3, { clock: '2026-08-26T14:50:00' });   // Wed 14:50, 80 min in
+    const page3 = await newPage(ctx3, { clock: '2026-09-02T14:50:00' });   // Wed 14:50, 80 min in (a Wed with no holiday nearby)
     await seed(page3, ['CS2102']);
     await page3.waitForSelector('#screen-app:not([hidden])');
     check('80 minutes in - past a standard Theory class\'s end - it is still current',
@@ -1495,6 +1495,358 @@ function clockScript(iso) {
         '50 min');
     }
     await ctx.close();
+  }
+
+  // ============ 24. Holiday lookup: pure-function checks ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    const HOLIDAYS = [
+      ['2026-08-15', 'Independence Day'],
+      ['2026-08-26', 'Milad un-Nabi'],
+      ['2026-10-02', 'Mahatma Gandhi Jayanti'],
+      ['2026-10-19', 'Additional day for Dussehra'],
+      ['2026-10-20', 'Dussehra'],
+      ['2026-11-08', 'Diwali'],
+      ['2026-11-24', 'Guru Nanak Jayanti'],
+      ['2026-12-25', 'Christmas'],
+    ];
+
+    eq('the holiday dataset loaded exactly the 8 documented holidays',
+      await page.evaluate(() => window.__tt.holidays.length), 8);
+    eq('the holiday dataset is a separate global, not merged into TIMETABLE_DATA',
+      await page.evaluate(() => 'holidays' in window.TIMETABLE_DATA), false);
+
+    const lookupResults = await page.evaluate((list) => {
+      const t = window.__tt;
+      return list.map(([date, name]) => {
+        const [y, m, d] = date.split('-').map(Number);
+        const on = t.holidayOn(new Date(y, m - 1, d));
+        const before = t.holidayOn(new Date(y, m - 1, d - 1));
+        const after = t.holidayOn(new Date(y, m - 1, d + 1));
+        return [on && on.name, before, after];
+      });
+    }, HOLIDAYS);
+    HOLIDAYS.forEach(([date, name], i) => {
+      eq(`holidayOn() correctly identifies ${date} as "${name}"`, lookupResults[i][0], name);
+    });
+    // Day-before and day-after are only "not a holiday" for isolated dates -
+    // Oct 19/20 are back-to-back, so their neighbours are checked separately.
+    [0, 1, 2, 5, 6, 7].forEach((i) => {
+      eq(`the day before ${HOLIDAYS[i][0]} is not a holiday`, lookupResults[i][1], null);
+      eq(`the day after ${HOLIDAYS[i][0]} is not a holiday`, lookupResults[i][2], null);
+    });
+    eq('the day before the Dussehra pair (18 Oct) is not a holiday', lookupResults[3][1], null);
+    eq('19 Oct correctly sees 20 Oct (the next day) as a holiday too',
+      await page.evaluate(() => {
+        const h = window.__tt.holidayOn(new Date(2026, 9, 20));
+        return h && h.name;
+      }), 'Dussehra');
+    eq('the day after the Dussehra pair (21 Oct) is not a holiday', lookupResults[4][2], null);
+
+    // Year boundary: same month/day, a year outside the loaded dataset.
+    eq('15 August 2027 (outside the loaded dataset) is not a holiday',
+      await page.evaluate(() => window.__tt.holidayOn(new Date(2027, 7, 15))), null);
+    eq('15 August 2025 (outside the loaded dataset) is not a holiday',
+      await page.evaluate(() => window.__tt.holidayOn(new Date(2025, 7, 15))), null);
+    eq('an ordinary date is not a holiday', await page.evaluate(() =>
+      window.__tt.holidayOn(new Date(2026, 7, 20))), null);
+
+    eq('localDateKey() uses local calendar fields, e.g. "2026-08-15"',
+      await page.evaluate(() => window.__tt.localDateKey(new Date(2026, 7, 15))), '2026-08-15');
+    await ctx.close();
+  }
+
+  // ============ 25. Holiday Today, end to end ============
+  {
+    // A weekday holiday that would otherwise have real scheduled classes:
+    // the holiday state must win, not the timetable.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-26T10:00:00' });   // Wed - Milad un-Nabi
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('exactly one card renders, the holiday card', await page.locator('.now-card').count(), 1);
+    check('it is marked as a holiday card', await page.locator('.now-card.holiday').count() === 1);
+    eq('the label reads "Holiday today"',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'Holiday today');
+    eq('the holiday name is shown', (await page.locator('.holiday-name').textContent()).trim(), 'Milad un-Nabi');
+    eq('the description says no regular classes',
+      (await page.locator('.now-card .now-empty').textContent()).trim(), 'No regular classes today.');
+    check('no misleading "Current class" or "Next" label appears',
+      !/Current class|^Next$/.test(await page.textContent('#now-card')));
+
+    eq('the TODAY section shows a holiday empty state, not the real Wednesday classes',
+      await page.locator('#today-list .event').count(), 0);
+    check('the empty state names the holiday',
+      /Milad un-Nabi/.test(await page.textContent('#today-list')));
+    eq('the day header shows the weekday, not a class count',
+      (await page.textContent('#today-head')).trim(), 'Wednesday');
+    await ctx.close();
+  }
+
+  // ============ 26. Holiday on a weekend takes precedence over "it's the weekend" ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-15T10:00:00' });   // Saturday - Independence Day
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('a weekend holiday still shows "Holiday today", not "it\'s the weekend"',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'Holiday today');
+    eq('the holiday name is shown', (await page.locator('.holiday-name').textContent()).trim(), 'Independence Day');
+    check('the generic weekend message is not shown',
+      !/weekend/i.test(await page.textContent('#today-list')));
+    eq('the day header shows the real weekday',
+      (await page.textContent('#today-head')).trim(), 'Saturday');
+    await ctx.close();
+
+    // A genuinely ordinary weekend, nowhere near a holiday, is unaffected.
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-08-29T10:00:00' });   // an ordinary Saturday
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('an ordinary weekend still shows the normal weekend message',
+      (await page2.textContent('#today-list')).includes('weekend'), true);
+    eq('no holiday card appears on an ordinary weekend', await page2.locator('.now-card.holiday').count(), 0);
+    await ctx2.close();
+  }
+
+  // ============ 27. Consecutive holidays (19 + 20 October) ============
+  {
+    for (const [iso, name] of [['2026-10-19T10:00:00', 'Additional day for Dussehra'],
+                               ['2026-10-20T10:00:00', 'Dussehra']]) {
+      const ctx = await browser.newContext(ctxOpts);
+      const page = await newPage(ctx, { clock: iso });
+      await seed(page, ['PH3104']);
+      await page.waitForSelector('#screen-app:not([hidden])');
+      eq(`${iso.slice(0, 10)} shows its own distinct holiday name`,
+        (await page.locator('.holiday-name').textContent()).trim(), name);
+      eq('only one holiday card renders (no duplicate/adjacent-day notice)',
+        await page.locator('.now-card.holiday').count(), 1);
+      await ctx.close();
+    }
+  }
+
+  // ============ 28. Holiday Tomorrow, end to end ============
+  {
+    // A weekday with real classes, followed by a weekday holiday: today's
+    // classes must stay fully visible alongside the compact notice.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-14T10:00:00' });   // Fri, before Sat 15 Aug
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const cards = page.locator('.now-card');
+    eq('two cards render: the holiday notice and the normal next-class card',
+      await cards.count(), 2);
+    eq('the holiday notice is first, per the recommended priority order',
+      (await cards.nth(0).locator('.now-label').textContent()).trim(), 'Tomorrow is a holiday');
+    check('the holiday notice is marked distinctly', await cards.nth(0).evaluate((el) => el.classList.contains('holiday')));
+    eq('the holiday name is shown', (await cards.nth(0).locator('.holiday-name').textContent()).trim(), 'Independence Day');
+    eq('the date is formatted exactly as specified: weekday, day month',
+      (await cards.nth(0).locator('.now-empty').textContent()).trim(), 'Saturday, 15 August');
+    eq('the normal next-class card still follows, unreplaced',
+      (await cards.nth(1).locator('.now-label').textContent()).trim(), 'Next class');
+
+    eq('today\'s real classes remain fully visible in the TODAY section',
+      await page.locator('#today-list .event').count(), 1);
+    eq('the day header is unaffected', (await page.textContent('#today-head')).trim(), 'Friday · 1 class');
+    await ctx.close();
+
+    // The Dussehra pair's date-format example, verbatim.
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-10-18T10:00:00' });   // Sun, before Mon 19 Oct
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('Dussehra-pair tomorrow-notice date format matches the spec example',
+      (await page2.locator('.now-card.holiday .now-empty').textContent()).trim(), 'Monday, 19 October');
+    // A weekend day's own list is unaffected by the tomorrow notice above it.
+    check('the weekend message still shows beneath the notice',
+      /weekend/i.test(await page2.textContent('#today-list')));
+    await ctx2.close();
+  }
+
+  // ============ 29. Holiday state does not touch Week view, data or customisations ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-26T10:00:00' });   // Wed - Milad un-Nabi
+    await seed(page, ['PH3104', 'PH3102', 'MA3101']);   // MA3101 has a real Wednesday class
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // Today's own list can't be used to make a customisation here: it is
+    // showing the holiday empty state, with no event/menu to click. Week
+    // view is unaffected by the holiday, so interact there instead - this
+    // doubles as proof Week's own interactions work normally on this date.
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    check('Week view opens on today\'s real weekday even though it is a holiday',
+      await page.getAttribute('#day-chips [data-day="Wednesday"]', 'aria-selected') === 'true');
+
+    let weekRows = await page.$$eval('#week-list .event', (els) => els.map((el) => [
+      el.querySelector('.time').textContent.trim(), el.querySelector('.code').textContent.trim(),
+    ]));
+    eq('Week view lists Wednesday\'s real class exactly as if there were no holiday',
+      weekRows, [['10:45', 'MA3101']]);
+    eq('no holiday banner, label or class is present anywhere in Week view',
+      await page.locator('#view-week .holiday, #view-week .now-card').count(), 0);
+    check('the word "holiday" does not appear anywhere in Week view',
+      !/holiday/i.test(await page.textContent('#view-week')));
+    eq('day pill counts are the normal, unfiltered counts',
+      await page.locator('#day-chips .chip').allTextContents(),
+      ['Mon3', 'Tue3', 'Wed1', 'Thu2', 'Fri3']);
+
+    // Make a real customisation through Week view.
+    await openMenu(page, '#week-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    const customBefore = await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1'));
+    check('the removal was actually recorded for this check to be meaningful', !!customBefore);
+    weekRows = await page.$$eval('#week-list .event', (els) => els.map((el) =>
+      el.querySelector('.code').textContent.trim()));
+    eq('the removal took effect normally in Week view on a holiday date', weekRows, []);
+
+    // Switching back to Today must not be disturbed by that customisation.
+    await page.click('.tab[data-view="today"]');
+    eq('Today still shows the holiday state after a Week-view customisation',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'Holiday today');
+    eq('Today\'s holiday empty state is unaffected by the customisation',
+      await page.locator('#today-list .event').count(), 0);
+
+    eq('the published timetable is still exactly 433 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+    check('the published timetable has no "holidays" field of its own',
+      await page.evaluate(() => !('holidays' in window.TIMETABLE_DATA)));
+    eq('the course selection is untouched by holiday rendering',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
+      ['MA3101', 'PH3102', 'PH3104']);
+
+    // Reset Courses and Reset Timetable Changes still work normally on a
+    // holiday date - holiday state is presentation-only and must not block
+    // or alter either flow.
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('"Reset timetable changes" is offered normally on a holiday date',
+      await page.locator('#reset-changes-btn').isVisible());
+    await page.click('#reset-changes-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    eq('Reset timetable changes works normally on a holiday date',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+    check('the holiday state itself is unaffected by resetting timetable changes',
+      (await page.locator('.now-card .now-label').textContent()).trim() === 'Holiday today');
+
+    await page.click('#open-settings');
+    await page.click('#reset-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForSelector('#screen-setup:not([hidden])');
+    check('Reset courses works normally on a holiday date', await page.isVisible('#screen-setup'));
+    await ctx.close();
+  }
+
+  // ============ 30. Holiday card across themes ============
+  {
+    const ctx = await browser.newContext({ ...ctxOpts, colorScheme: 'light' });
+    const page = await newPage(ctx, { clock: '2026-08-26T10:00:00' });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const lightBorder = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.now-card.holiday')).borderColor);
+    const lightText = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.holiday-name')).color);
+
+    await page.click('#open-settings');
+    await page.click('#theme-seg [data-theme="dark"]');
+    await page.waitForTimeout(80);
+    const darkBorder = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.now-card.holiday')).borderColor);
+    const darkText = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.holiday-name')).color);
+
+    check('the holiday card is visibly styled in light mode', lightBorder !== 'rgba(0, 0, 0, 0)');
+    check('the holiday card border changes between light and dark', lightBorder !== darkBorder);
+    check('holiday text is legible (colour set) in both themes', !!lightText && !!darkText);
+
+    await page.click('#theme-seg [data-theme="auto"]');
+    await page.waitForTimeout(80);
+    check('Auto mode still renders the holiday card',
+      await page.locator('.now-card.holiday').isVisible());
+    await ctx.close();
+  }
+
+  // ============ 31. Offline cold launch on a holiday ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-08-26T10:00:00' });   // Wed - Milad un-Nabi
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(async () => {
+      const keys = await caches.keys();
+      if (!keys.length) return false;
+      const c = await caches.open(keys[0]);
+      return (await c.keys()).length >= 10;   // now includes data/holidays.js
+    }, null, { timeout: 15000 });
+
+    const cachedHolidays = await page.evaluate(async () => {
+      const c = await caches.open((await caches.keys())[0]);
+      return (await c.keys()).some((r) => new URL(r.url).pathname.endsWith('data/holidays.js'));
+    });
+    check('the holiday dataset is precached for offline use', cachedHolidays);
+
+    await page.fill('#search', 'PH3104');
+    await page.waitForTimeout(50);
+    await page.click('.course-row[data-code="PH3104"]');
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await ctx.setOffline(true);
+    const cold = await newPage(ctx, { clock: '2026-08-26T10:00:00' });
+    await cold.goto(base);
+    await cold.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
+
+    check('the app cold-starts offline on a holiday date', await cold.isVisible('#screen-app'));
+    eq('the holiday state renders correctly with no network',
+      (await cold.locator('.now-card .now-label').textContent()).trim(), 'Holiday today');
+    eq('the holiday name renders offline', (await cold.locator('.holiday-name').textContent()).trim(), 'Milad un-Nabi');
+    eq('offline holiday lookup still finds all 8 entries',
+      await cold.evaluate(() => window.__tt.holidays.length), 8);
+    await ctx.setOffline(false);
+    await ctx.close();
+  }
+
+  // ============ 32. Local date, not UTC (Indian timezone) ============
+  {
+    // A local instant just after midnight IST on Independence Day, where the
+    // UTC calendar date is still the 14th. Code that used toISOString() or
+    // getUTC*() instead of local getters would misdetect this as "not yet a
+    // holiday" (or "tomorrow"), exactly the bug the feature spec warns about.
+    const ctx = await browser.newContext({ ...ctxOpts, timezoneId: 'Asia/Kolkata' });
+    const page = await newPage(ctx, { clock: '2026-08-15T00:15:00' });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('00:15 local IST on 15 Aug reads as Holiday Today, using the LOCAL date',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'Holiday today');
+    await ctx.close();
+
+    // The mirror instant, 30 minutes earlier local time: still 14 Aug locally,
+    // so it must be "tomorrow is a holiday", not yet "holiday today".
+    const ctx2 = await browser.newContext({ ...ctxOpts, timezoneId: 'Asia/Kolkata' });
+    const page2 = await newPage(ctx2, { clock: '2026-08-14T23:45:00' });
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('23:45 local IST on 14 Aug is still "tomorrow is a holiday"',
+      (await page2.locator('.now-card .now-label').first().textContent()).trim(), 'Tomorrow is a holiday');
+    await ctx2.close();
   }
 
   await browser.close();

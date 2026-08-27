@@ -17,6 +17,7 @@ repository.
 | `style.css` | All styling. Mobile-first, system font stack, light/dark tokens. |
 | `app.js` | All UI logic: filtering, sorting, current/next detection, localStorage, service-worker registration. |
 | `data/timetable.js` | **The dataset.** 433 events + 122 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
+| `data/holidays.js` | 2026 institute holidays (`window.HOLIDAY_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
 | `sw.js` | Service worker: precaches the shell, serves it offline. |
 | `icons/` | PNG app icons (192, 512, maskable 512, apple-touch). |
@@ -126,6 +127,40 @@ so a corrupted entry degrades to "no customisations" instead of breaking the
 app. With no keys set, the app behaves exactly as it did before the feature
 existed.
 
+## Holiday awareness (Today tab only)
+
+The Today tab knows about institute holidays; the Week tab does not and never
+will — holidays are a Today-only presentation layer, not a timetable feature.
+
+- **Holiday today**: the current/next-class card is replaced with a plain
+  informational card — holiday name, "No regular classes today." — and the
+  class list below shows a matching empty state instead of the day's real
+  classes. This applies even on a holiday that falls on a weekend (e.g.
+  Independence Day, a Saturday in 2026): it still reads "Holiday today", never
+  the generic weekend message.
+- **Holiday tomorrow** (today itself is not a holiday): a compact notice —
+  "Tomorrow is a holiday", the name, "Weekday, D Month" — appears above the
+  normal current/next-class card. It never replaces anything: today's real
+  classes stay fully visible below it.
+- Two holidays in a row (19 and 20 October 2026) each show their own correct
+  name on their own day; the pair does not produce a doubled-up notice.
+
+**Data.** `data/holidays.js` defines `window.HOLIDAY_DATA` — a flat
+`[{date, name}]` list, `date` as `"YYYY-MM-DD"` — entirely separate from
+`window.TIMETABLE_DATA`. Nothing in the holiday feature reads, filters, or
+otherwise touches the timetable dataset, `effectiveEvents()`, course
+selection, or personal customisations. Swapping to a future academic year's
+holidays means replacing this one file; a date outside the loaded list is
+simply not a holiday.
+
+**Local date, not UTC.** The lookup key is built from a `Date`'s local
+`getFullYear()`/`getMonth()`/`getDate()` (`localDateKey()` in app.js), the
+same way the rest of the app already determines "today". It deliberately does
+not use `toISOString()` or any `getUTC*()` accessor, which would read the
+wrong calendar day for part of the evening/night in India (UTC+5:30) — e.g.
+00:15 IST on 15 August is already Independence Day locally while `toISOString()`
+would still report the 14th.
+
 ## Replacing the timetable
 
 The dataset is deliberately separate from the UI. Either edit
@@ -178,10 +213,17 @@ browser context offline to verify the service worker.
   silently "fix" the source.
 - **Same-slot duplicates are preserved.** Friday 09:50 `CH2104 (Tut)` is listed
   twice in two different rooms; both are kept as separate events.
-- **Monday–Friday only.** Saturday and Sunday are holidays: both show a
-  weekend state with no events, plus a pointer to the next upcoming class.
-- No public/academic-calendar holidays, exam dates, one-off reschedules or
-  instructor names — the source data contains none of these.
+- **Monday–Friday only.** The timetable itself has no Saturday/Sunday events:
+  both show a weekend state with no classes, plus a pointer to the next
+  upcoming class. Separately, the Today tab is aware of the institutional
+  holidays in `data/holidays.js` (see above) — a holiday there takes
+  precedence over the weekend message if the two coincide, and is unrelated to
+  whether the date happens to be a weekday.
+- **`data/holidays.js` is specific to 2026** and does not repeat automatically
+  in later years — a date outside the loaded list is simply not a holiday.
+  Swap the file's contents for a future academic year's dates when needed.
+- No exam dates, one-off reschedules or instructor names — the source data
+  contains none of these.
 - Course names come from `Autumn_2026_Offered_Courses.csv`. All 122 timetabled
   codes matched a name.
 - The selection is stored in `localStorage` under `iiserk.tt.courses.v1`, so it

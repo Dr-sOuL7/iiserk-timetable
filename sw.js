@@ -11,7 +11,7 @@
  */
 'use strict';
 
-var CACHE = 'iiserk-timetable-v6';
+var CACHE = 'iiserk-timetable-v7';
 
 var ASSETS = [
   './',
@@ -19,6 +19,7 @@ var ASSETS = [
   'style.css',
   'app.js',
   'data/timetable.js',
+  'data/holidays.js',
   'manifest.json',
   'icons/icon-192.png',
   'icons/icon-512.png',
