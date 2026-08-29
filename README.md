@@ -17,7 +17,7 @@ repository.
 | `style.css` | All styling. Mobile-first, system font stack, light/dark tokens. |
 | `app.js` | All UI logic: filtering, sorting, current/next detection, localStorage, service-worker registration. |
 | `data/timetable.js` | **The dataset.** 433 events + 122 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
-| `data/holidays.js` | 2026 institute holidays (`window.HOLIDAY_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
+| `data/holidays.js` | 2026 institute holidays and academic breaks (`window.HOLIDAY_DATA`, `window.BREAK_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
 | `sw.js` | Service worker: precaches the shell, serves it offline. |
 | `icons/` | PNG app icons (192, 512, maskable 512, apple-touch). |
@@ -127,10 +127,13 @@ so a corrupted entry degrades to "no customisations" instead of breaking the
 app. With no keys set, the app behaves exactly as it did before the feature
 existed.
 
-## Holiday awareness (Today tab only)
+## Holiday and academic-break awareness (Today tab only)
 
-The Today tab knows about institute holidays; the Week tab does not and never
-will — holidays are a Today-only presentation layer, not a timetable feature.
+The Today tab knows about institute holidays and multi-day academic breaks;
+the Week tab does not and never will — this is a Today-only presentation
+layer, not a timetable feature. Both single-day holidays and multi-day breaks
+are the same underlying system: one data file, one section of app.js, the
+same card component, and the same rendering precedence rules.
 
 - **Holiday today**: the current/next-class card is replaced with a plain
   informational card — holiday name, "No regular classes today." — and the
@@ -142,16 +145,43 @@ will — holidays are a Today-only presentation layer, not a timetable feature.
   "Tomorrow is a holiday", the name, "Weekday, D Month" — appears above the
   normal current/next-class card. It never replaces anything: today's real
   classes stay fully visible below it.
-- Two holidays in a row (19 and 20 October 2026) each show their own correct
-  name on their own day; the pair does not produce a doubled-up notice.
+- **On break** (today falls anywhere inside a multi-day break): same
+  treatment as holiday-today, worded as "On break" / the break's name / "No
+  regular classes. Classes resume {date}." The resume date is the day after
+  the break ends, and reads "tomorrow" on the break's own last day — that one
+  phrase covers "does the break end today or tomorrow" without a separate UI
+  state for it.
+- **Break starts tomorrow** (today is not inside any break): a compact notice
+  — "Break starts tomorrow" / the break's name / "D Month – D Month" (the
+  break's own date range) — above the normal current/next-class card, exactly
+  like holiday-tomorrow. Today's real classes stay fully visible.
+- **A break takes priority over a single-day holiday nested inside it** — the
+  coarser, more encompassing state wins. Winter Vacation (13 Dec – 3 Jan)
+  contains Christmas, and Autumn Break (17–25 Oct) contains both Dussehra
+  dates; on those days the UI shows the break, not the individual holiday
+  (the holiday data itself is untouched and still independently correct —
+  `holidayOn()` returns "Christmas" regardless of what `breakOn()` finds).
+- **Next Class skips days inside a break.** If the timetable's own weekly
+  pattern would otherwise land the "next class" on a day inside an upcoming
+  break, that day (and every other day of the break) is skipped, landing on
+  the real next class once the break ends — a class that would otherwise be
+  many weeks away, since Winter Vacation alone runs 22 days. This is
+  Today-tab-only, in `computeNextSkippingBreaks()`; `computeNow()` itself
+  (which Week view depends on for its own current/next-class highlighting)
+  is completely unmodified — see "Local date, not UTC" below for why this
+  split exists at all.
 
-**Data.** `data/holidays.js` defines `window.HOLIDAY_DATA` — a flat
-`[{date, name}]` list, `date` as `"YYYY-MM-DD"` — entirely separate from
-`window.TIMETABLE_DATA`. Nothing in the holiday feature reads, filters, or
-otherwise touches the timetable dataset, `effectiveEvents()`, course
-selection, or personal customisations. Swapping to a future academic year's
-holidays means replacing this one file; a date outside the loaded list is
-simply not a holiday.
+**Data.** `data/holidays.js` defines two flat arrays, both entirely separate
+from `window.TIMETABLE_DATA`:
+`HOLIDAY_DATA` = `[{date, name}]` for single-day holidays, and
+`BREAK_DATA` = `[{start, end, name}]` (inclusive at both ends) for multi-day
+breaks — dates as `"YYYY-MM-DD"` throughout, which compare correctly as plain
+strings even across the Dec/Jan year boundary Winter Vacation spans, so no
+date parsing is needed to test range membership. Nothing in this feature
+reads, filters, or otherwise touches the timetable dataset, `effectiveEvents()`,
+course selection, or personal customisations. Swapping to a future academic
+year means replacing this one file; a date outside either loaded list is
+simply not a holiday/break.
 
 **Local date, not UTC.** The lookup key is built from a `Date`'s local
 `getFullYear()`/`getMonth()`/`getDate()` (`localDateKey()` in app.js), the
@@ -216,12 +246,14 @@ browser context offline to verify the service worker.
 - **Monday–Friday only.** The timetable itself has no Saturday/Sunday events:
   both show a weekend state with no classes, plus a pointer to the next
   upcoming class. Separately, the Today tab is aware of the institutional
-  holidays in `data/holidays.js` (see above) — a holiday there takes
-  precedence over the weekend message if the two coincide, and is unrelated to
-  whether the date happens to be a weekday.
-- **`data/holidays.js` is specific to 2026** and does not repeat automatically
-  in later years — a date outside the loaded list is simply not a holiday.
-  Swap the file's contents for a future academic year's dates when needed.
+  holidays and academic breaks in `data/holidays.js` (see above) — either
+  takes precedence over the weekend message if they coincide, and both are
+  unrelated to whether the date happens to be a weekday (Autumn Break starts
+  on a Saturday; Winter Vacation starts on a Sunday).
+- **`data/holidays.js` is specific to 2026** (Winter Vacation runs into
+  January 2027) and does not repeat automatically in later years — a date
+  outside either loaded list is simply not a holiday/break. Swap the file's
+  contents for a future academic year's dates when needed.
 - No exam dates, one-off reschedules or instructor names — the source data
   contains none of these.
 - Course names come from `Autumn_2026_Offered_Courses.csv`. All 122 timetabled

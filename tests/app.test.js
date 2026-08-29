@@ -1615,17 +1615,25 @@ function clockScript(iso) {
     await ctx2.close();
   }
 
-  // ============ 27. Consecutive holidays (19 + 20 October) ============
+  // ============ 27. Consecutive holidays (19 + 20 October), now inside Autumn Break ============
   {
-    for (const [iso, name] of [['2026-10-19T10:00:00', 'Additional day for Dussehra'],
-                               ['2026-10-20T10:00:00', 'Dussehra']]) {
+    // Both Dussehra dates fall inside Autumn Break (17-25 Oct), which must
+    // take priority: the UI shows "Autumn Break" on both days, not the
+    // individual holiday names - a break is the coarser, more encompassing
+    // state (see the precedence comment in renderToday()). The underlying
+    // single-day holiday data is untouched and still correct - proven
+    // directly via holidayOn() in section 24 - this only confirms the UI's
+    // resolved precedence.
+    for (const iso of ['2026-10-19T10:00:00', '2026-10-20T10:00:00']) {
       const ctx = await browser.newContext(ctxOpts);
       const page = await newPage(ctx, { clock: iso });
       await seed(page, ['PH3104']);
       await page.waitForSelector('#screen-app:not([hidden])');
-      eq(`${iso.slice(0, 10)} shows its own distinct holiday name`,
-        (await page.locator('.holiday-name').textContent()).trim(), name);
-      eq('only one holiday card renders (no duplicate/adjacent-day notice)',
+      eq(`${iso.slice(0, 10)} shows "Autumn Break", not the subsumed Dussehra holiday name`,
+        (await page.locator('.holiday-name').textContent()).trim(), 'Autumn Break');
+      eq('the label reads "On break"',
+        (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+      eq('only one card renders (no duplicate break/holiday notice)',
         await page.locator('.now-card.holiday').count(), 1);
       await ctx.close();
     }
@@ -1657,13 +1665,16 @@ function clockScript(iso) {
     eq('the day header is unaffected', (await page.textContent('#today-head')).trim(), 'Friday · 1 class');
     await ctx.close();
 
-    // The Dussehra pair's date-format example, verbatim.
+    // A standalone holiday's tomorrow-notice date format, verbatim, using a
+    // holiday NOT subsumed by any break (Diwali, 8 Nov) - the Dussehra pair
+    // (19/20 Oct) is now inside Autumn Break and is covered in section 33.
     const ctx2 = await browser.newContext(ctxOpts);
-    const page2 = await newPage(ctx2, { clock: '2026-10-18T10:00:00' });   // Sun, before Mon 19 Oct
+    const page2 = await newPage(ctx2, { clock: '2026-11-07T10:00:00' });   // Sat, before Sun 8 Nov
     await seed(page2, ['PH3104']);
     await page2.waitForSelector('#screen-app:not([hidden])');
-    eq('Dussehra-pair tomorrow-notice date format matches the spec example',
-      (await page2.locator('.now-card.holiday .now-empty').textContent()).trim(), 'Monday, 19 October');
+    eq('standalone-holiday tomorrow-notice date format matches the spec example',
+      (await page2.locator('.now-card.holiday .now-empty').textContent()).trim(), 'Sunday, 8 November');
+    eq('the holiday name is shown', (await page2.locator('.holiday-name').textContent()).trim(), 'Diwali');
     // A weekend day's own list is unaffected by the tomorrow notice above it.
     check('the weekend message still shows beneath the notice',
       /weekend/i.test(await page2.textContent('#today-list')));
@@ -1847,6 +1858,335 @@ function clockScript(iso) {
     eq('23:45 local IST on 14 Aug is still "tomorrow is a holiday"',
       (await page2.locator('.now-card .now-label').first().textContent()).trim(), 'Tomorrow is a holiday');
     await ctx2.close();
+  }
+
+  // ============ 33. Academic breaks: pure-function checks ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    eq('the break dataset loaded exactly the 2 documented breaks',
+      await page.evaluate(() => window.__tt.breaks.length), 2);
+    eq('the break dataset is a separate global, not merged into TIMETABLE_DATA',
+      await page.evaluate(() => 'breaks' in window.TIMETABLE_DATA), false);
+
+    const BREAKS = [
+      // [name, [y,m,d] before, [y,m,d] first, [y,m,d] middle, [y,m,d] last, [y,m,d] after]
+      ['Autumn Break', [2026, 10, 16], [2026, 10, 17], [2026, 10, 21], [2026, 10, 25], [2026, 10, 26]],
+      ['Winter Vacation', [2026, 12, 12], [2026, 12, 13], [2026, 12, 25], [2027, 1, 3], [2027, 1, 4]],
+    ];
+    const results = await page.evaluate((list) => {
+      const t = window.__tt;
+      return list.map(([name, before, first, middle, last, after]) => {
+        const on = (a) => { const b = t.breakOn(new Date(a[0], a[1] - 1, a[2])); return b && b.name; };
+        return [on(before), on(first), on(middle), on(last), on(after)];
+      });
+    }, BREAKS);
+    BREAKS.forEach(([name], i) => {
+      eq(`the day before ${name} is not in the break`, results[i][0], null);
+      eq(`the first day of ${name} is correctly identified`, results[i][1], name);
+      eq(`a middle day of ${name} is correctly identified`, results[i][2], name);
+      eq(`the last day of ${name} is correctly identified`, results[i][3], name);
+      eq(`the day after ${name} is not in the break`, results[i][4], null);
+    });
+
+    // Winter Vacation subsumes Christmas: breakOn() finds the break, while
+    // holidayOn() (unmodified) still separately and correctly finds Christmas
+    // - the underlying holiday data is intact, only the UI's resolved
+    // precedence (tested end to end below) prefers the break.
+    eq('breakOn(25 Dec) finds Winter Vacation',
+      await page.evaluate(() => { const b = window.__tt.breakOn(new Date(2026, 11, 25)); return b && b.name; }),
+      'Winter Vacation');
+    eq('holidayOn(25 Dec) still separately finds Christmas, unaffected by breaks',
+      await page.evaluate(() => { const h = window.__tt.holidayOn(new Date(2026, 11, 25)); return h && h.name; }),
+      'Christmas');
+
+    // Year boundary robustness, exactly mirroring the single-day holiday
+    // dataset's convention: a date outside the loaded range is never a break.
+    eq('17 October 2027 (outside the loaded range) is not a break',
+      await page.evaluate(() => window.__tt.breakOn(new Date(2027, 9, 17))), null);
+    eq('13 December 2025 (outside the loaded range) is not a break',
+      await page.evaluate(() => window.__tt.breakOn(new Date(2025, 11, 13))), null);
+    eq('an ordinary date is not in any break',
+      await page.evaluate(() => window.__tt.breakOn(new Date(2026, 10, 15))), null);
+    await ctx.close();
+  }
+
+  // ============ 34. Break Today, end to end (first / middle / last day) ============
+  {
+    const cases = [
+      ['2026-10-17T10:00:00', 'Autumn Break', 'first day, a Saturday - overrides the weekend message',
+        'No regular classes. Classes resume Monday, 26 October.'],
+      ['2026-10-21T10:00:00', 'Autumn Break', 'a middle weekday with real classes normally scheduled',
+        'No regular classes. Classes resume Monday, 26 October.'],
+      ['2026-10-25T10:00:00', 'Autumn Break', 'last day, a Sunday - resume phrase says "tomorrow"',
+        'No regular classes. Classes resume tomorrow.'],
+      ['2026-12-13T10:00:00', 'Winter Vacation', 'first day, a Sunday - overrides the weekend message',
+        'No regular classes. Classes resume Monday, 4 January.'],
+      ['2026-12-25T10:00:00', 'Winter Vacation', 'a middle day that is also Christmas - break wins',
+        'No regular classes. Classes resume Monday, 4 January.'],
+      ['2027-01-03T10:00:00', 'Winter Vacation', 'last day - resume phrase says "tomorrow"',
+        'No regular classes. Classes resume tomorrow.'],
+    ];
+    for (const [iso, name, label, desc] of cases) {
+      const ctx = await browser.newContext(ctxOpts);
+      const page = await newPage(ctx, { clock: iso });
+      await seed(page, ['PH3104', 'MA3101']);
+      await page.waitForSelector('#screen-app:not([hidden])');
+
+      eq(`[${name} - ${label}] exactly one card renders`, await page.locator('.now-card').count(), 1);
+      eq(`[${name} - ${label}] label reads "On break"`,
+        (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+      eq(`[${name} - ${label}] break name is shown`,
+        (await page.locator('.holiday-name').textContent()).trim(), name);
+      eq(`[${name} - ${label}] resume-date phrasing is correct`,
+        (await page.locator('.now-card .now-empty').textContent()).trim(), desc);
+      check(`[${name} - ${label}] no misleading Current/Next class label`,
+        !/Current class|^Next$/.test(await page.textContent('#now-card')));
+
+      eq(`[${name} - ${label}] TODAY section shows a break empty state, not real classes`,
+        await page.locator('#today-list .event').count(), 0);
+      check(`[${name} - ${label}] the empty state names the break`,
+        (await page.textContent('#today-list')).includes(name));
+      await ctx.close();
+    }
+  }
+
+  // ============ 35. Break Starts Tomorrow, end to end ============
+  {
+    // Autumn Break's day-before (16 Oct) is a Friday with a real PH3104
+    // class: today's real classes must stay fully visible under the notice.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-10-16T15:00:00' });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const cards = page.locator('.now-card');
+    check('the break notice is marked distinctly',
+      await cards.nth(0).evaluate((el) => el.classList.contains('holiday')));
+    eq('label reads "Break starts tomorrow"',
+      (await cards.nth(0).locator('.now-label').textContent()).trim(), 'Break starts tomorrow');
+    eq('break name is shown', (await cards.nth(0).locator('.holiday-name').textContent()).trim(), 'Autumn Break');
+    eq('the date range is formatted "D Month – D Month", no year',
+      (await cards.nth(0).locator('.now-empty').textContent()).trim(), '17 October – 25 October');
+    eq('the normal next-class card still follows, unreplaced',
+      (await cards.nth(1).locator('.now-label').textContent()).trim(), 'Next class');
+
+    eq('today\'s real Friday class remains fully visible', await page.locator('#today-list .event').count(), 1);
+    eq('the day header shows the real weekday', (await page.textContent('#today-head')).trim(), 'Friday · 1 class');
+    await ctx.close();
+
+    // Winter Vacation's day-before (12 Dec) is a Saturday: PH3104 has no
+    // Saturday classes at all (Saturday isn't even a teaching day), so the
+    // existing weekend message must still show beneath the notice, exactly
+    // as the equivalent holiday-tomorrow-on-a-weekend case already does.
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-12-12T10:00:00' });
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    eq('label reads "Break starts tomorrow" on the weekend day before too',
+      (await page2.locator('.now-card.holiday .now-label').textContent()).trim(), 'Break starts tomorrow');
+    eq('break name is shown', (await page2.locator('.holiday-name').textContent()).trim(), 'Winter Vacation');
+    eq('the date range correctly spans the year boundary with no year shown',
+      (await page2.locator('.now-card.holiday .now-empty').textContent()).trim(), '13 December – 3 January');
+    check('the weekend message still shows beneath the notice',
+      /weekend/i.test(await page2.textContent('#today-list')));
+    await ctx2.close();
+  }
+
+  // ============ 36. Next Class logic skips days inside a break ============
+  {
+    // Isolated case: CS2102 meets only Monday 15:20 and Wednesday 13:30.
+    // From Thursday 15 Oct, the unmodified computeNow() would find "next" on
+    // Monday 19 Oct (inside Autumn Break, offset 4) - the break-aware
+    // version must skip both the 19th AND the 21st (also inside the break)
+    // and land on Monday 26 Oct (offset 11), with no "starts tomorrow"
+    // notice in play to confound the result.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-10-15T10:00:00' });
+    await seed(page, ['CS2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const cmp = await page.evaluate(() => {
+      const t = window.__tt;
+      const sel = new Set(['CS2102']);
+      const now = new Date();
+      const raw = t.computeNow(sel, now);
+      const aware = t.computeNextSkippingBreaks(sel, now);
+      return {
+        rawOffset: raw.nextOffset, rawDay: raw.next[0] && raw.next[0].day,
+        awareOffset: aware.nextOffset, awareDay: aware.next[0] && aware.next[0].day,
+      };
+    });
+    eq('sanity check: the unmodified computeNow() would land inside the break',
+      cmp.rawOffset, 4);
+    eq('the break-aware scan skips past the break entirely',
+      cmp.awareOffset, 11);
+    eq('both point at a Monday (the label alone can\'t disambiguate the date - '
+      + 'this is why the offset assertions above matter)', [cmp.rawDay, cmp.awareDay], ['Monday', 'Monday']);
+
+    check('computeNow() itself is completely unmodified by the break feature (Week view depends on it)',
+      cmp.rawOffset === 4);
+    eq('the rendered card uses the break-aware result, not the raw one',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'Next class');
+    await ctx.close();
+
+    // Combined case: the day immediately before Autumn Break starts, where
+    // the "starts tomorrow" notice AND the Next-card skip fire together.
+    const ctx2 = await browser.newContext(ctxOpts);
+    const page2 = await newPage(ctx2, { clock: '2026-10-16T15:00:00' });   // after PH3104's own 10:45 Fri class
+    await seed(page2, ['PH3104']);
+    await page2.waitForSelector('#screen-app:not([hidden])');
+    const cmp2 = await page2.evaluate(() => {
+      const t = window.__tt;
+      const sel = new Set(['PH3104']);
+      const now = new Date();
+      return { raw: t.computeNow(sel, now).nextOffset, aware: t.computeNextSkippingBreaks(sel, now).nextOffset };
+    });
+    eq('sanity check: raw would land on Monday 19 Oct, inside the break', cmp2.raw, 3);
+    eq('the Next card skips past the break to Monday 26 Oct instead', cmp2.aware, 10);
+    eq('the rendered Next card is present alongside the starts-tomorrow notice',
+      (await page2.locator('.now-card').nth(1).locator('.now-label').textContent()).trim(), 'Next class');
+    await ctx2.close();
+  }
+
+  // ============ 37. Break state does not touch Week view, data or customisations ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-10-21T10:00:00' });   // Wed, middle of Autumn Break
+    await seed(page, ['PH3104', 'PH3102', 'MA3101']);   // MA3101 has a real Wednesday class
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    check('Week view opens on today\'s real weekday even though it is inside a break',
+      await page.getAttribute('#day-chips [data-day="Wednesday"]', 'aria-selected') === 'true');
+
+    let weekRows = await page.$$eval('#week-list .event', (els) => els.map((el) => [
+      el.querySelector('.time').textContent.trim(), el.querySelector('.code').textContent.trim(),
+    ]));
+    eq('Week view lists Wednesday\'s real class exactly as if there were no break',
+      weekRows, [['10:45', 'MA3101']]);
+    eq('no break/holiday banner or card is present anywhere in Week view',
+      await page.locator('#view-week .holiday, #view-week .now-card').count(), 0);
+    check('neither "break" nor "holiday" appears anywhere in Week view',
+      !/break|holiday/i.test(await page.textContent('#view-week')));
+    eq('day pill counts are the normal, unfiltered counts',
+      await page.locator('#day-chips .chip').allTextContents(),
+      ['Mon3', 'Tue3', 'Wed1', 'Thu2', 'Fri3']);
+
+    // Make a real customisation through Week view (Today's own list has no
+    // events/menus to click while it is showing the break empty state).
+    await openMenu(page, '#week-list', 0);
+    await page.click('#event-remove');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    const customBefore = await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1'));
+    check('the removal was actually recorded for this check to be meaningful', !!customBefore);
+    weekRows = await page.$$eval('#week-list .event', (els) => els.map((el) =>
+      el.querySelector('.code').textContent.trim()));
+    eq('the removal took effect normally in Week view during a break', weekRows, []);
+
+    await page.click('.tab[data-view="today"]');
+    eq('Today still shows the break state after a Week-view customisation',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+    eq('the published timetable is still exactly 433 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+    eq('the course selection is untouched by break rendering',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
+      ['MA3101', 'PH3102', 'PH3104']);
+
+    // Reset Courses and Reset Timetable Changes still work normally during a
+    // break - the break state is presentation-only and must not block or
+    // alter either flow.
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    await page.click('#reset-changes-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForTimeout(120);
+    eq('Reset timetable changes works normally during a break',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.custom.v1')), null);
+    check('the break state itself is unaffected by resetting timetable changes',
+      (await page.locator('.now-card .now-label').textContent()).trim() === 'On break');
+
+    await page.click('#open-settings');
+    await page.click('#reset-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForSelector('#screen-setup:not([hidden])');
+    check('Reset courses works normally during a break', await page.isVisible('#screen-setup'));
+    await ctx.close();
+  }
+
+  // ============ 38. Break card across themes ============
+  {
+    const ctx = await browser.newContext({ ...ctxOpts, colorScheme: 'light' });
+    const page = await newPage(ctx, { clock: '2026-10-21T10:00:00' });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const lightBorder = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.now-card.holiday')).borderColor);
+
+    await page.click('#open-settings');
+    await page.click('#theme-seg [data-theme="dark"]');
+    await page.waitForTimeout(80);
+    const darkBorder = await page.evaluate(() =>
+      getComputedStyle(document.querySelector('.now-card.holiday')).borderColor);
+
+    check('the break card is visibly styled in light mode', lightBorder !== 'rgba(0, 0, 0, 0)');
+    check('the break card border changes between light and dark', lightBorder !== darkBorder);
+
+    await page.click('#theme-seg [data-theme="auto"]');
+    await page.waitForTimeout(80);
+    check('Auto mode still renders the break card',
+      await page.locator('.now-card.holiday').isVisible());
+    await ctx.close();
+  }
+
+  // ============ 39. Offline cold launch during a break ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-10-21T10:00:00' });   // Wed, middle of Autumn Break
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(async () => {
+      const keys = await caches.keys();
+      if (!keys.length) return false;
+      const c = await caches.open(keys[0]);
+      return (await c.keys()).length >= 10;
+    }, null, { timeout: 15000 });
+
+    await page.fill('#search', 'PH3104');
+    await page.waitForTimeout(50);
+    await page.click('.course-row[data-code="PH3104"]');
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await ctx.setOffline(true);
+    const cold = await newPage(ctx, { clock: '2026-10-21T10:00:00' });
+    await cold.goto(base);
+    await cold.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
+
+    check('the app cold-starts offline during a break', await cold.isVisible('#screen-app'));
+    eq('the break state renders correctly with no network',
+      (await cold.locator('.now-card .now-label').textContent()).trim(), 'On break');
+    eq('the break name renders offline', (await cold.locator('.holiday-name').textContent()).trim(), 'Autumn Break');
+    eq('offline break lookup still finds both configured breaks',
+      await cold.evaluate(() => window.__tt.breaks.length), 2);
+    eq('the offline Next-class scan still correctly skips break days',
+      await cold.evaluate(() => {
+        const t = window.__tt;
+        return t.computeNextSkippingBreaks(new Set(['PH3104']), new Date()).nextOffset;
+      }), 5);   // Wed 21 Oct -> Mon 26 Oct is 5 days
+    await ctx.setOffline(false);
+    await ctx.close();
   }
 
   await browser.close();

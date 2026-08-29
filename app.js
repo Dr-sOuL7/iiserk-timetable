@@ -20,13 +20,15 @@
 
   // ------------------------------------------------------------- holidays
   //
-  // A Today-tab-only presentation layer. data/holidays.js (window.HOLIDAY_DATA)
-  // is a separate, hand-maintained file - never merged into TIMETABLE_DATA,
-  // never used to filter or alter timetable events, and never read by the
-  // Week view. Swapping academic years means replacing that one file.
+  // A Today-tab-only presentation layer. data/holidays.js (window.HOLIDAY_DATA,
+  // window.BREAK_DATA) is a separate, hand-maintained file - never merged into
+  // TIMETABLE_DATA, never used to filter or alter timetable events, and never
+  // read by the Week view. Swapping academic years means replacing that file.
   var HOLIDAYS = window.HOLIDAY_DATA || [];
   var HOLIDAY_BY_DATE = {};
   HOLIDAYS.forEach(function (h) { HOLIDAY_BY_DATE[h.date] = h; });
+
+  var BREAKS = window.BREAK_DATA || [];
 
   /**
    * "YYYY-MM-DD" from a JS Date using its LOCAL calendar fields.
@@ -49,6 +51,20 @@
   }
 
   /**
+   * The academic break containing `date`'s local calendar day, or null.
+   * Zero-padded "YYYY-MM-DD" strings compare correctly in plain string order
+   * (including across the Dec/Jan year boundary that Winter Vacation spans),
+   * so no date parsing or arithmetic is needed here.
+   */
+  function breakOn(date) {
+    var key = localDateKey(date);
+    for (var i = 0; i < BREAKS.length; i++) {
+      if (key >= BREAKS[i].start && key <= BREAKS[i].end) return BREAKS[i];
+    }
+    return null;
+  }
+
+  /**
    * Today/tomorrow holiday status for the Today tab. Independent of
    * `computeNow()` on purpose: Week view's current/next-class highlighting
    * must stay byte-for-byte unchanged, so this never touches that function
@@ -62,6 +78,23 @@
     // headline state - otherwise the two notices would just duplicate.
     var tomorrow = today ? null : holidayOn(tomorrowDate);
     return { today: today, tomorrow: tomorrow, tomorrowDate: tomorrowDate };
+  }
+
+  /**
+   * Today/starts-tomorrow break status for the Today tab, exactly mirroring
+   * holidayContext() above (same independence from computeNow(), same
+   * shape). Kept as a separate function rather than folded into
+   * holidayContext() so neither function's existing, already-tested contract
+   * has to change - renderToday() resolves the precedence between the two.
+   */
+  function breakContext(now) {
+    var today = breakOn(now);
+    var tomorrowDate = new Date(now.getTime());
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    // Ranges are contiguous, so if today is not in a break but tomorrow is,
+    // tomorrow must be that break's first day - never its middle or end.
+    var startsTomorrow = today ? null : breakOn(tomorrowDate);
+    return { today: today, startsTomorrow: startsTomorrow, tomorrowDate: tomorrowDate };
   }
 
   var KEY_COURSES = 'iiserk.tt.courses.v1';
@@ -392,25 +425,18 @@
   }
 
   /**
-   * Current + next class from the device clock.
-   * Looks up to 7 days ahead so Friday evening correctly points at Monday.
+   * The forward day-by-day scan shared by computeNow() and the Today-tab's
+   * break-aware next-class lookup below. `skip(date)`, when given, excludes
+   * a whole day from the scan regardless of what the timetable says - used
+   * to skip academic breaks without computeNow() itself ever knowing they
+   * exist (Week view depends on computeNow() and must not change).
    */
-  function computeNow(selected, now) {
-    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    var today = teachingDay(now);
-
-    var current = [];
-    if (today) {
-      current = eventsFor(today, selected).filter(function (e) {
-        return nowMin >= e.minutes && nowMin < e.minutes + e.duration;
-      });
-    }
-
-    // Next: earliest start strictly after "now", scanning forward day by day.
+  function scanForNext(selected, now, nowMin, dayLimit, skip) {
     var next = [], nextOffset = 0;
-    for (var offset = 0; offset <= 7 && !next.length; offset++) {
+    for (var offset = 0; offset <= dayLimit && !next.length; offset++) {
       var d = new Date(now.getTime());
       d.setDate(d.getDate() + offset);
+      if (skip && skip(d)) continue;
       var dayName = teachingDay(d);
       if (!dayName) continue;
       var candidates = eventsFor(dayName, selected).filter(function (e) {
@@ -430,6 +456,25 @@
       target.setHours(Math.floor(next[0].minutes / 60), next[0].minutes % 60, 0, 0);
       startsIn = (target.getTime() - now.getTime()) / 60000;
     }
+    return { next: next, nextOffset: nextOffset, startsIn: startsIn };
+  }
+
+  /**
+   * Current + next class from the device clock.
+   * Looks up to 7 days ahead so Friday evening correctly points at Monday.
+   */
+  function computeNow(selected, now) {
+    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    var today = teachingDay(now);
+
+    var current = [];
+    if (today) {
+      current = eventsFor(today, selected).filter(function (e) {
+        return nowMin >= e.minutes && nowMin < e.minutes + e.duration;
+      });
+    }
+
+    var scan = scanForNext(selected, now, nowMin, 7, null);
 
     return {
       today: today,
@@ -437,10 +482,25 @@
       current: current,
       remaining: current.length ? (current[0].minutes + current[0].duration - nowMin) : null,
       elapsed: current.length ? (nowMin - current[0].minutes) : null,
-      next: next,
-      nextOffset: nextOffset,
-      startsIn: startsIn
+      next: scan.next,
+      nextOffset: scan.nextOffset,
+      startsIn: scan.startsIn
     };
+  }
+
+  // Breaks can run several weeks (Winter Vacation is 22 days); scan well
+  // beyond the longest configured break plus a full week, to guarantee
+  // finding a real class once the break has ended.
+  var NEXT_SCAN_DAYS_SKIPPING_BREAKS = 40;
+
+  /**
+   * Today-tab-only: the next class, treating every day inside an academic
+   * break as if it had no events at all, regardless of what the timetable
+   * says. Never used by Week view or by computeNow() - see scanForNext().
+   */
+  function computeNextSkippingBreaks(selected, now) {
+    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    return scanForNext(selected, now, nowMin, NEXT_SCAN_DAYS_SKIPPING_BREAKS, breakOn);
   }
 
   // ------------------------------------------------------------- rendering
@@ -499,22 +559,71 @@
       '</div>';
   }
 
+  // Built from fixed name tables, not toLocaleDateString(): the required
+  // wording is "Saturday, 15 August" (day before month, no year), and
+  // Intl's day/month ordering for a given locale tag is not guaranteed
+  // consistent across browser engines - confirmed different between Node's
+  // and Chromium's ICU for the same 'en-IN' tag. This is deterministic.
+  function weekdayDate(date) {
+    return WEEKDAY_NAMES[date.getDay()] + ', ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
+  }
+
+  /** "D Month", no weekday or year - for the compact break date-range line. */
+  function shortDate(date) {
+    return date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
+  }
+
   /**
    * Today is a normal day but tomorrow is a holiday. Compact, and placed
    * ABOVE the normal current/next card - it never replaces today's classes.
    */
   function holidayTomorrowCardHtml(h, date) {
-    // Built from fixed name tables, not toLocaleDateString(): the required
-    // wording is "Saturday, 15 August" (day before month, no year), and
-    // Intl's day/month ordering for a given locale tag is not guaranteed
-    // consistent across browser engines - confirmed different between Node's
-    // and Chromium's ICU for the same 'en-IN' tag. This is deterministic.
-    var when = WEEKDAY_NAMES[date.getDay()] + ', ' + date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
     return '' +
       '<div class="now-card holiday">' +
         '<div class="now-label">Tomorrow is a holiday</div>' +
         '<div class="holiday-name">' + esc(h.name) + '</div>' +
-        '<div class="now-empty">' + esc(when) + '</div>' +
+        '<div class="now-empty">' + esc(weekdayDate(date)) + '</div>' +
+      '</div>';
+  }
+
+  /**
+   * Today falls inside an academic break. Reuses the exact same card as
+   * holidayTodayCardHtml() - a break and a single-day holiday are the same
+   * "no classes, informational" family of state - and, like it, fully
+   * REPLACES the current/next card and the day's class list.
+   *
+   * The resume date doubles as the "does the break end today/tomorrow"
+   * signal: on the break's last day, resumeDate is by construction tomorrow,
+   * and the phrase says so directly rather than spelling out a date the
+   * reader already knows is "tomorrow" - no separate UI state is needed for
+   * that case, it falls out of this one naturally.
+   */
+  function breakTodayCardHtml(b, now) {
+    var resumeDate = new Date(b.end + 'T00:00:00');
+    resumeDate.setDate(resumeDate.getDate() + 1);
+    var isLastDay = localDateKey(now) === b.end;
+    var resumeWhen = isLastDay ? 'tomorrow' : weekdayDate(resumeDate);
+    return '' +
+      '<div class="now-card holiday">' +
+        '<div class="now-label">On break</div>' +
+        '<div class="holiday-name">' + esc(b.name) + '</div>' +
+        '<div class="now-empty">No regular classes. Classes resume ' + esc(resumeWhen) + '.</div>' +
+      '</div>';
+  }
+
+  /**
+   * Today is a normal day but a break starts tomorrow. Compact, placed
+   * ABOVE the normal current/next card - never hides today's real classes.
+   */
+  function breakTomorrowCardHtml(b) {
+    var start = new Date(b.start + 'T00:00:00');
+    var end = new Date(b.end + 'T00:00:00');
+    var range = shortDate(start) + ' – ' + shortDate(end);
+    return '' +
+      '<div class="now-card holiday">' +
+        '<div class="now-label">Break starts tomorrow</div>' +
+        '<div class="holiday-name">' + esc(b.name) + '</div>' +
+        '<div class="now-empty">' + esc(range) + '</div>' +
       '</div>';
   }
 
@@ -607,23 +716,44 @@
   function renderToday() {
     var now = new Date();
     var info = computeNow(state.selected, now);
+    var brk = breakContext(now);
     var hol = holidayContext(now);
 
     $('date-line').textContent = now.toLocaleDateString(undefined, {
       weekday: 'long', day: 'numeric', month: 'long', year: 'numeric'
     });
 
-    // Holiday-today replaces the current/next card outright (never alongside
-    // it - that would risk implying a class is still imminent). Holiday
-    // notices are date-only and shown regardless of course selection, the
-    // same way the date line above is; nowCardHtml() already no-ops itself
-    // when no courses are selected.
-    if (hol.today) {
+    // The "Next" line specifically must skip whole days that fall inside an
+    // upcoming break (e.g. scanning forward from just before a break starts),
+    // even on a day that isn't itself special in any other way. This never
+    // touches computeNow()'s own current/next - eventsFor()/statusFor() below
+    // keep using the raw `info` - so Week view is completely unaffected: it
+    // never renders this card and only reads computeNow()'s original output.
+    var nextSkip = computeNextSkippingBreaks(state.selected, now);
+    var cardInfo = {
+      today: info.today, nowMin: info.nowMin, current: info.current,
+      remaining: info.remaining, elapsed: info.elapsed,
+      next: nextSkip.next, nextOffset: nextSkip.nextOffset, startsIn: nextSkip.startsIn
+    };
+
+    // Precedence (a break is the coarser, more encompassing state, so it
+    // wins over a single-day holiday nested inside it - Winter Vacation
+    // contains Christmas): break-today > holiday-today > break-starts-
+    // tomorrow > holiday-tomorrow > normal. Today-in-a-break/holiday replaces
+    // the current/next card outright (never alongside it - that would risk
+    // implying a class is still imminent). All of these are date-only and
+    // shown regardless of course selection, the same way the date line above
+    // is; nowCardHtml() already no-ops itself when no courses are selected.
+    if (brk.today) {
+      $('now-card').innerHTML = breakTodayCardHtml(brk.today, now);
+    } else if (hol.today) {
       $('now-card').innerHTML = holidayTodayCardHtml(hol.today);
+    } else if (brk.startsTomorrow) {
+      $('now-card').innerHTML = breakTomorrowCardHtml(brk.startsTomorrow) + nowCardHtml(cardInfo);
     } else if (hol.tomorrow) {
-      $('now-card').innerHTML = holidayTomorrowCardHtml(hol.tomorrow, hol.tomorrowDate) + nowCardHtml(info);
+      $('now-card').innerHTML = holidayTomorrowCardHtml(hol.tomorrow, hol.tomorrowDate) + nowCardHtml(cardInfo);
     } else {
-      $('now-card').innerHTML = nowCardHtml(info);
+      $('now-card').innerHTML = nowCardHtml(cardInfo);
     }
 
     var list = $('today-list');
@@ -638,10 +768,18 @@
 
     $('today-head').hidden = false;
 
-    // Holiday takes precedence over the weekend check below - Independence
-    // Day (a Saturday in 2026) must read as a holiday, not "it's the
-    // weekend", and this branch fires regardless of whether the date is a
-    // weekday or weekend (holidayOn() only ever looks at the calendar date).
+    // Same precedence as above, and for the same reason it takes precedence
+    // over the weekend check further down - Independence Day (a Saturday in
+    // 2026) must read as a holiday, and Winter Vacation swallows several
+    // weekends too, not "it's the weekend". These branches fire regardless
+    // of whether the date is a weekday or weekend (breakOn()/holidayOn()
+    // only ever look at the calendar date).
+    if (brk.today) {
+      $('today-head').textContent = info.today || WEEKDAY_NAMES[now.getDay()];
+      list.innerHTML = emptyHtml('No classes today',
+        brk.today.name + ' - no regular classes are scheduled.');
+      return;
+    }
     if (hol.today) {
       $('today-head').textContent = info.today || WEEKDAY_NAMES[now.getDay()];
       list.innerHTML = emptyHtml('No classes today',
@@ -1268,6 +1406,10 @@
     holidayOn: holidayOn,
     holidayContext: holidayContext,
     holidays: HOLIDAYS,
+    breakOn: breakOn,
+    breakContext: breakContext,
+    computeNextSkippingBreaks: computeNextSkippingBreaks,
+    breaks: BREAKS,
     KEY_COURSES: KEY_COURSES,
     KEY_THEME: KEY_THEME,
     KEY_CUSTOM: KEY_CUSTOM
