@@ -72,6 +72,7 @@
     <div id="view-today" class="view">
       <p class="date-line" id="date-line"></p>
       <div id="now-card"></div>
+      <div id="midsem-card"></div>
       <h2 class="section-head" id="today-head">Today</h2>
       <div id="today-list" class="event-list"></div>
     </div>
@@ -124,6 +125,13 @@
       <span>
         <strong>Reset timetable changes</strong>
         <small id="changes-summary"></small>
+      </span>
+    </button>
+
+    <button type="button" id="reset-midsem-btn" class="sheet-btn" hidden>
+      <span>
+        <strong>Reset Mid-Sem edits</strong>
+        <small id="midsem-changes-summary"></small>
       </span>
     </button>
 
@@ -244,10 +252,58 @@
   </form>
 </aside>
 
+<!-- ================= Mid-Sem full schedule ================= -->
+<div id="midsem-backdrop" class="backdrop" hidden></div>
+<aside id="midsem-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="midsem-sheet-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="midsem-sheet-title">Mid-Sem schedule</h2>
+  <p class="sheet-sub" id="midsem-sheet-sub"></p>
+
+  <div id="midsem-list" class="event-list midsem-list"></div>
+
+  <button type="button" id="midsem-close" class="ghost-btn">Close</button>
+</aside>
+
+<!-- ================= Edit Mid-Sem exam ================= -->
+<div id="midsem-edit-backdrop" class="backdrop" hidden></div>
+<aside id="midsem-edit-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="midsem-edit-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="midsem-edit-title">Edit exam</h2>
+  <p class="sheet-sub" id="midsem-edit-sub"></p>
+
+  <form id="midsem-edit-form" novalidate>
+    <div class="field-row">
+      <label class="field">
+        <span>Date</span>
+        <input type="date" id="me-date" required>
+      </label>
+      <label class="field">
+        <span>Start time</span>
+        <input type="time" id="me-time" required>
+      </label>
+    </div>
+
+    <label class="field">
+      <span>Venue</span>
+      <input type="text" id="me-venue" autocomplete="off" required>
+    </label>
+
+    <p class="field-error" id="midsem-edit-error" hidden></p>
+
+    <div class="modal-actions">
+      <button type="button" id="midsem-edit-cancel" class="ghost-btn">Cancel</button>
+      <button type="submit" id="midsem-edit-save" class="primary-btn wide">Save changes</button>
+    </div>
+  </form>
+</aside>
+
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
 
 <script src="data/timetable.js"></script>
 <script src="data/holidays.js"></script>
+<script src="data/midsem.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

@@ -108,6 +108,20 @@ function clockScript(iso) {
     await page.waitForSelector('#event-sheet:not([hidden])');
   }
 
+  /** Read the full Mid-Sem schedule sheet's rows as [time, code, venue, isEdited]. */
+  const midsemRows = (page) => page.$$eval('#midsem-list .event', (els) => els.map((el) => [
+    el.querySelector('.time').textContent.trim(),
+    el.querySelector('.code').textContent.trim(),
+    el.querySelector('.room span').textContent.trim(),
+    !!el.querySelector('.edited-flag'),
+  ]));
+
+  /** Open the edit dialog for the nth exam in the Mid-Sem full schedule sheet. */
+  async function openMidsemEdit(page, n) {
+    await page.locator('#midsem-list .evt-menu').nth(n).click();
+    await page.waitForSelector('#midsem-edit-sheet:not([hidden])');
+  }
+
   const editValues = (page) => page.evaluate(() =>
     ['f-day', 'f-time', 'f-course', 'f-name', 'f-type', 'f-duration', 'f-room']
       .map((id) => document.getElementById(id).value));
@@ -2185,6 +2199,362 @@ function clockScript(iso) {
         const t = window.__tt;
         return t.computeNextSkippingBreaks(new Set(['PH3104']), new Date()).nextOffset;
       }), 5);   // Wed 21 Oct -> Mon 26 Oct is 5 days
+    await ctx.setOffline(false);
+    await ctx.close();
+  }
+
+  // ============ 40. Mid-Sem data: bundled, separate, pure-function checks ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    eq('the Mid-Sem dataset loaded all 94 documented exams',
+      await page.evaluate(() => window.__tt.midsem.exams.length), 94);
+    eq('the Mid-Sem dataset is a separate global, not merged into TIMETABLE_DATA',
+      await page.evaluate(() => 'exams' in window.TIMETABLE_DATA || 'midsem' in window.TIMETABLE_DATA), false);
+    eq('the published timetable event count is unaffected by the Mid-Sem feature',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+
+    eq('a multi-venue course merges every allocated room, in source order',
+      await page.evaluate(() => window.__tt.midsem.exams.find((e) => e.course === 'CS2102')),
+      { id: 'midsem-cs2102', course: 'CS2102', date: '2026-09-12', time: '10:00',
+        minutes: 600, duration: 90, shift: 1, venue: 'G02, G08' });
+
+    check('Mid-Sem source data is frozen against writes', await page.evaluate(() => {
+      const e = window.__tt.midsem.exams[0];
+      const before = e.venue;
+      try { e.venue = 'HACKED'; } catch (err) { /* strict mode throws */ }
+      return e.venue === before;
+    }));
+
+    eq('every Mid-Sem course has a matching course in the catalog',
+      await page.evaluate(() => window.__tt.midsem.exams.every((e) =>
+        window.TIMETABLE_DATA.courses.some((c) => c.code === e.course))), true);
+    await ctx.close();
+  }
+
+  // ============ 41. Mid-Sem card is absent when no selected course has an exam ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-01T08:00:00' });
+    await seed(page, ['CS2103']);   // documented as having no Mid-Sem exam
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('no Mid-Sem card renders for a course with no Mid-Sem exam',
+      (await page.textContent('#midsem-card')).trim(), '');
+    await ctx.close();
+  }
+
+  // ============ 42. Mid-Sem card: next exam + full schedule in chronological order ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-06T08:00:00' });   // Sunday, day before CH2102's exam
+    await seed(page, ['LS2103', 'CH2102', 'CS2102', 'CH2104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('the Mid-Sem card shows the next upcoming exam, not a more distant one',
+      (await page.locator('#midsem-card .now-code').textContent()).trim(), 'CH2102');
+    eq('the card labels it "Next Mid-Sem exam"',
+      (await page.locator('#midsem-card .now-label').textContent()).trim(), 'Next Mid-Sem exam');
+    check('the venue shown is the merged, order-preserved string',
+      (await page.locator('#midsem-card .now-where').textContent()).includes('G02, G08'));
+    eq('the date label reads "Tomorrow"',
+      (await page.locator('#midsem-card .now-remain').textContent()).trim(), 'Tomorrow · 10:00');
+    eq('the card is not styled as a current exam', await page.locator('#midsem-card .midsem-card.live').count(), 0);
+
+    // --- full schedule: exactly the selected courses' exams, chronologically
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('the full schedule lists the selected courses\' exams in chronological order',
+      await midsemRows(page), [
+        ['10:00', 'LS2103', 'G05, G02, G08', false],
+        ['10:00', 'CH2102', 'G05, G02, G08', false],
+        ['10:00', 'CS2102', 'G02, G08', false],
+        ['15:00', 'CH2104', 'G05, G02, G08', false],
+      ]);
+    eq('the sub-header counts the exams',
+      (await page.textContent('#midsem-sheet-sub')).trim(), '4 exams for your selected courses, in order');
+
+    await page.click('#midsem-close');
+    await page.waitForSelector('#midsem-sheet', { state: 'hidden' });
+    await ctx.close();
+  }
+
+  // ============ 43. Mid-Sem card: a current exam ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-07T10:30:00' });   // Monday, mid-exam
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('exactly one Mid-Sem card renders, marked live',
+      await page.locator('#midsem-card .midsem-card.live').count(), 1);
+    eq('the label reads "Mid-Sem exam now"',
+      (await page.locator('#midsem-card .now-label').textContent()).trim(), 'Mid-Sem exam now');
+    eq('the course code is shown',
+      (await page.locator('#midsem-card .now-code').textContent()).trim(), 'CH2102');
+    const courseName = await page.evaluate(() =>
+      window.TIMETABLE_DATA.courses.find((c) => c.code === 'CH2102').name);
+    eq('the course name is shown', (await page.locator('#midsem-card .now-name').textContent()).trim(), courseName);
+    const nowWhere = await page.locator('#midsem-card .now-where').textContent();
+    check('venue and time are both shown', nowWhere.includes('G02, G08') && nowWhere.includes('10:00'));
+
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('the exam row in the full schedule is marked "Now"',
+      (await page.textContent('#midsem-list .event.is-now .badge')).trim(), 'Now');
+    await ctx.close();
+  }
+
+  // ============ 44. Mid-Sem card: multiple concurrent current exams ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-05T10:15:00' });   // Saturday, both mid-exam
+    await seed(page, ['LS2103', 'MA3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const labelText = await page.locator('#midsem-card .now-label').textContent();
+    check('the label mentions concurrent exams and the count',
+      /Mid-Sem exams now/.test(labelText) && /2 at once/.test(labelText));
+    eq('two compact exam rows are shown', await page.locator('#midsem-card .now-row').count(), 2);
+    const rowCodes = (await page.locator('#midsem-card .now-row-code').allTextContents()).sort();
+    eq('both concurrent courses are listed', rowCodes, ['LS2103', 'MA3104']);
+    await ctx.close();
+  }
+
+  // ============ 45. Regular classes are suppressed during an active Mid-Sem exam ============
+  {
+    // CH2102's exam is Monday 7 Sept, 10:00-11:30. Interval-overlap boundary
+    // cases on that same Monday: 08:55 ends before the exam starts (kept),
+    // 09:50 ends after it starts (suppressed), 10:45 is fully inside
+    // (suppressed), 11:40 starts exactly when the exam ends (kept) - and the
+    // suppressed classes belong to OTHER courses entirely, proving this is a
+    // real time-interval overlap, not a course-code match.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-07T09:00:00' });
+    await seed(page, ['PH3104', 'PH3102', 'CH4104', 'PH4104', 'CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('classes overlapping the active exam are suppressed; others are not',
+      await listRows(page, '#today-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['11:40', 'PH4104', 'Theory', '102', false]]);
+
+    // --- Week view must be completely unaffected: same Monday, full list.
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    eq('Week view shows every Monday class, including the ones suppressed on Today',
+      await listRows(page, '#week-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false],
+       ['10:45', 'CH4104', 'Theory', '110', false],
+       ['11:40', 'PH4104', 'Theory', '102', false],
+       ['16:15', 'CH2102', 'Theory', 'S N Bose Lecture Theatre', false]]);
+    await ctx.close();
+  }
+
+  // ============ 46. Editing a Mid-Sem exam: persistence, sparse override, read-only course ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-01T08:00:00' });   // well before any exam
+    await seed(page, ['CS2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    await openMidsemEdit(page, 0);
+
+    check('the edit dialog has no course field - course code/name are read-only',
+      await page.locator('#me-course').count() === 0);
+    const courseName = await page.evaluate(() =>
+      window.TIMETABLE_DATA.courses.find((c) => c.code === 'CS2102').name);
+    eq('the edit dialog names the read-only course and its name',
+      (await page.textContent('#midsem-edit-sub')).trim(), 'CS2102 · ' + courseName);
+    eq('the dialog pre-fills the published date/time/venue', await page.evaluate(() => [
+      document.getElementById('me-date').value,
+      document.getElementById('me-time').value,
+      document.getElementById('me-venue').value,
+    ]), ['2026-09-12', '10:00', 'G02, G08']);
+
+    await page.fill('#me-venue', 'G02, G08, Overflow Hall');
+    await page.click('#midsem-edit-save');
+    await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
+
+    eq('the edited exam is flagged and shows the new venue',
+      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08, Overflow Hall', true]]);
+    eq('only the changed field is persisted (sparse patch)',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.midsem.v1')).overrides),
+      { 'midsem-cs2102': { venue: 'G02, G08, Overflow Hall' } });
+
+    await page.click('#midsem-close');
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('the edit survives a reload', await midsemRows(page), [['10:00', 'CS2102', 'G02, G08, Overflow Hall', true]]);
+
+    // --- moving the date/time to right now makes it the current exam
+    await openMidsemEdit(page, 0);
+    await page.fill('#me-date', '2026-09-01');
+    await page.fill('#me-time', '08:00');
+    await page.click('#midsem-edit-save');
+    await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
+    await page.click('#midsem-close');
+    eq('the Mid-Sem card reflects the edited (now current) exam time',
+      (await page.locator('#midsem-card .now-label').textContent()).trim(), 'Mid-Sem exam now');
+
+    // --- restoring every field drops the override entirely
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    await openMidsemEdit(page, 0);
+    await page.fill('#me-date', '2026-09-12');
+    await page.fill('#me-time', '10:00');
+    await page.fill('#me-venue', 'G02, G08');
+    await page.click('#midsem-edit-save');
+    await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
+    eq('re-entering the published values clears the override',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.midsem.v1')), null);
+    check('the exam is no longer flagged as edited', (await midsemRows(page))[0][3] === false);
+
+    await page.click('#midsem-close');
+    await ctx.close();
+  }
+
+  // ============ 47. Reset Mid-Sem edits stays separate from timetable/course resets ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-01T08:00:00' });   // Tuesday
+    await seed(page, ['CS2102', 'CS2103']);   // CS2103 has no Mid-Sem exam at all
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('the reset-Mid-Sem button is hidden with no edits', await page.isHidden('#reset-midsem-btn'));
+    await page.click('#close-settings');
+
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    await openMidsemEdit(page, 0);   // CS2102 is the only exam listed
+    await page.fill('#me-venue', 'Changed Venue');
+    await page.click('#midsem-edit-save');
+    await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
+    await page.click('#midsem-close');
+
+    // an ordinary timetable edit, to prove the two resets never cross-affect each other
+    await openMenu(page, '#today-list', 0);   // CS2103's Tuesday 11:40 class
+    await page.click('#event-edit');
+    await page.waitForSelector('#edit-sheet:not([hidden])');
+    await page.fill('#f-room', 'ZZZ');
+    await page.click('#edit-save');
+    await page.waitForSelector('#edit-sheet', { state: 'hidden' });
+
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('the reset-Mid-Sem button appears once an exam is edited', await page.isVisible('#reset-midsem-btn'));
+    eq('it summarises the edit count',
+      (await page.textContent('#midsem-changes-summary')).trim(), '1 exam edited - restore the published schedule');
+
+    await page.click('#reset-midsem-btn');
+    await page.waitForSelector('#confirm-dialog:not([hidden])');
+    await page.click('#confirm-ok');
+    await page.waitForSelector('#confirm-dialog', { state: 'hidden' });
+
+    eq('Mid-Sem overrides are cleared',
+      await page.evaluate(() => localStorage.getItem('iiserk.tt.midsem.v1')), null);
+    eq('the timetable edit survives the Mid-Sem reset untouched',
+      await page.evaluate(() => !!JSON.parse(localStorage.getItem('iiserk.tt.custom.v1')).overrides), true);
+    eq('the course selection survives the Mid-Sem reset untouched',
+      await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1'))), ['CS2102', 'CS2103']);
+    await ctx.close();
+  }
+
+  // ============ 48. Malformed / missing Mid-Sem storage ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-01T08:00:00' });
+    await page.goto(base);
+    await page.evaluate(() => {
+      localStorage.setItem('iiserk.tt.courses.v1', JSON.stringify(['CS2102']));
+      localStorage.setItem('iiserk.tt.midsem.v1', '{not valid json');
+    });
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('corrupt Mid-Sem data degrades to the published schedule, not a crash',
+      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08', false]]);
+    await page.click('#midsem-close');
+
+    await page.evaluate(() => localStorage.setItem('iiserk.tt.midsem.v1', JSON.stringify({
+      version: 1,
+      overrides: {
+        'midsem-cs2102': { date: '31/13/2026', time: '99:99', venue: '   ', duration: 999 },
+        'no-such-exam-id': { venue: 'X' },
+        'bad-patch': 'not an object',
+      },
+    })));
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('invalid fields are dropped, published values are kept, unknown ids are ignored',
+      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08', false]]);
+    check('the app does not crash on malformed Mid-Sem storage', await page.isVisible('#screen-app'));
+    await ctx.close();
+  }
+
+  // ============ 49. Offline cold start with a Mid-Sem edit and active suppression ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-07T09:00:00' });   // Monday, CH2102's exam day
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    await page.evaluate(() => navigator.serviceWorker.ready);
+    await page.waitForFunction(async () => {
+      const keys = await caches.keys();
+      if (!keys.length) return false;
+      const c = await caches.open(keys[0]);
+      return (await c.keys()).length >= 10;
+    }, null, { timeout: 15000 });
+
+    for (const code of ['CH2102', 'PH3102']) {
+      await page.fill('#search', code);
+      await page.waitForTimeout(50);
+      await page.click(`.course-row[data-code="${code}"]`);
+    }
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // Edit the exam's venue while still online.
+    await page.click('[data-action="midsem-full"]');
+    await page.waitForSelector('#midsem-sheet:not([hidden])');
+    await openMidsemEdit(page, 0);
+    await page.fill('#me-venue', 'Overflow Hall');
+    await page.click('#midsem-edit-save');
+    await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
+    await page.click('#midsem-close');
+
+    // ---- genuinely offline, cold start
+    await ctx.setOffline(true);
+    const cold = await newPage(ctx, { clock: '2026-09-07T09:00:00' });
+    await cold.goto(base);
+    await cold.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
+
+    check('the app cold-starts offline with the Mid-Sem feature intact', await cold.isVisible('#screen-app'));
+    // Both selected courses have an exam that day - CH2102's 10:00-11:30
+    // suppresses PH3102's 09:50 class, and PH3102's own 15:00-16:30 exam in
+    // turn suppresses CH2102's 16:15 class, leaving nothing on Today.
+    eq('offline suppression accounts for every selected course\'s exam that day',
+      await listRows(cold, '#today-list'), []);
+    await cold.click('[data-action="midsem-full"]');
+    await cold.waitForSelector('#midsem-sheet:not([hidden])');
+    eq('the offline Mid-Sem edit is intact, alongside the other selected course\'s published exam',
+      await midsemRows(cold), [['10:00', 'CH2102', 'Overflow Hall', true], ['15:00', 'PH3102', 'G06', false]]);
     await ctx.setOffline(false);
     await ctx.close();
   }

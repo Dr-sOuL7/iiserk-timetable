@@ -601,6 +601,28 @@ svg {
   margin-top: var(--s1);
 }
 
+/* Mid-Sem card: same shape as .now-card (duplicated rather than shared,
+   so `.now-card`-scoped selectors elsewhere - and in the existing test
+   suite - never accidentally match this separate #midsem-card element),
+   its own accent so it never reads as a regular class - amber rather than
+   the blue (holiday/break) or green (live class) already in use. */
+.midsem-card {
+  border-radius: var(--r-lg);
+  padding: var(--s3) var(--s3) var(--s3);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-color: var(--tut);
+  box-shadow: var(--shadow-sm);
+}
+.midsem-card .now-label { color: var(--tut); }
+.midsem-card .dot { background: var(--tut); }
+.midsem-card .now-remain { color: var(--tut); }
+.midsem-card.live {
+  background: var(--tut-bg);
+  box-shadow: none;
+}
+.midsem-link { display: block; margin-top: var(--s2); }
+
 /* ---------------- Event list ---------------- */
 
 .event-list { display: flex; flex-direction: column; gap: 6px; }
@@ -836,6 +858,7 @@ svg {
   color: var(--text-dim);
   margin: calc(var(--s2) * -1) 0 var(--s3);
 }
+.midsem-list { margin-bottom: var(--s3); }
 
 /* Grouped rows, so related actions read as one block. */
 .sheet-group {

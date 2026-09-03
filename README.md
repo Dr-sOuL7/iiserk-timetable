@@ -4,6 +4,8 @@ An offline-first personal class timetable for IISER Kolkata, Autumn 2026.
 Pick your courses once; the app then opens straight to today's classes, tells you
 what is running right now and what is next, and keeps working with no network.
 Individual classes can be edited or removed, and those changes persist offline.
+The Today tab also surfaces your Mid-Sem exam schedule (date, time, venue) and
+hides any regular class that a Mid-Sem exam period cancels.
 
 Plain HTML, CSS and vanilla JavaScript. No backend, no database, no login, no
 API, no build step, and no CDN or external font — every byte it needs is in this
@@ -18,13 +20,16 @@ repository.
 | `app.js` | All UI logic: filtering, sorting, current/next detection, localStorage, service-worker registration. |
 | `data/timetable.js` | **The dataset.** 433 events + 122 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
 | `data/holidays.js` | 2026 institute holidays and academic breaks (`window.HOLIDAY_DATA`, `window.BREAK_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
+| `data/midsem.js` | The Mid-Sem exam schedule — one entry per course (`window.MIDSEM_DATA`), for Today-tab awareness and the Mid-Sem editor. Generated — see below. |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
 | `sw.js` | Service worker: precaches the shell, serves it offline. |
 | `icons/` | PNG app icons (192, 512, maskable 512, apple-touch). |
 | `.nojekyll` | Tells GitHub Pages to serve the files as-is. |
-| `tools/raw/` | The source timetable text and the offered-courses CSV. |
+| `tools/raw/` | The source timetable text, the offered-courses CSV, and the Mid-Sem venue/date CSVs. |
 | `tools/build-data.js` | Regenerates `data/timetable.js` from `tools/raw/`. |
 | `tools/validate-data.js` | Data checks of the generated dataset against the raw source. |
+| `tools/build-midsem.js` | Regenerates `data/midsem.js` from `tools/raw/midsem_venues_1.csv` + `_2.csv`. |
+| `tools/validate-midsem.js` | Data checks of the generated Mid-Sem dataset against its raw sources. |
 | `tools/make-icons.py` | Regenerates `icons/` (pure Python, no image libraries). |
 | `tests/app.test.js` | End-to-end browser checks (Playwright + headless Chromium). |
 
@@ -118,6 +123,7 @@ detection and the countdown always use this real, possibly-edited length.
 | --- | --- |
 | `iiserk.tt.courses.v1` | Selected course codes. |
 | `iiserk.tt.custom.v1` | `{version, overrides: {id: patch}, removed: [id]}`. |
+| `iiserk.tt.midsem.v1` | `{version, overrides: {id: patch}}` — Mid-Sem date/time/venue edits, see below. |
 | `iiserk.tt.theme.v1` | Auto / light / dark. |
 
 They are deliberately separate: **Reset courses** clears only the selection, so
@@ -191,6 +197,73 @@ wrong calendar day for part of the evening/night in India (UTC+5:30) — e.g.
 00:15 IST on 15 August is already Independence Day locally while `toISOString()`
 would still report the 14th.
 
+## Mid-Sem examinations (Today tab only, editable)
+
+The Today tab includes a Mid-Sem card, independent of the current/next-class
+card and of the holiday/break cards above it. **The Week tab is completely
+unchanged** — no Mid-Sem card, label or exam information appears there, and
+its layout and behaviour are untouched.
+
+- **Only your selected courses' exams are shown**, one exam per course. A
+  course with several room allocations (roll-number-split sections) still
+  gets exactly one entry — every allocated venue is combined into that one
+  entry's Venue field (e.g. `"G02, G08"`), never split into duplicate exams
+  and never silently dropped.
+- **Current exam**: if a selected course's exam is happening right now, the
+  card shows it (course, name, venue, time), styled distinctly (amber) from
+  both a live class and a holiday/break notice. Two courses can share an
+  exact exam slot (same date and shift) — the card then lists both
+  compactly, the same treatment already used for clashing regular classes.
+- **Next exam**: otherwise, the soonest upcoming selected-course exam is
+  shown, with a "Today" / "Tomorrow" / "Weekday, D Month" date label.
+- **Full schedule**: "View full Mid-Sem schedule" opens a sheet listing every
+  selected-course exam in chronological order. Tapping an exam's `⋮` opens an
+  edit dialog for **Date, Time and Venue only** — course code and course name
+  are read-only, always the published code and the same
+  code-to-name lookup the timetable itself uses. Edited exams are marked
+  **Edited**; Settings → **Reset Mid-Sem edits** restores all of them at once
+  (hidden when there is nothing to reset, and entirely separate from
+  **Reset timetable changes** and **Reset courses**).
+- **No regular classes during a Mid-Sem exam.** On the exact calendar date of
+  an active selected-course exam, any regular class (any course, not just the
+  one being examined) whose time interval overlaps the exam's interval is
+  left out of the Today list and out of the current/next-class card — a real
+  date/time overlap check against the (possibly edited) exam time, never a
+  course-code match. The published timetable is never touched; this is a
+  render-time filter only, and it does not apply to the Week tab at all.
+
+### How it works
+
+Same shape as the timetable customisation layer above, kept in a completely
+separate localStorage key (`iiserk.tt.midsem.v1`) so resetting one never
+affects the other:
+
+```
+MIDSEM_DATA.exams              (immutable, 94 published exams, one per course)
+       +  overrides            (sparse date/time/venue patches)
+       =  effectiveMidsemExams(selected)  ->  chronological, selected-only
+```
+
+`window.MIDSEM_DATA` is `Object.freeze`d at start-up, exactly like
+`TIMETABLE_DATA`. Suppression is implemented as sibling functions
+(`computeNowWithMidsem()`, `computeNextSkippingBreaksAndMidsem()`) built on
+the same `scanForNext()` helper the break-skipping feature already uses —
+`computeNow()` and `eventsFor()` themselves are never modified, so Week
+view (which calls `computeNow()` directly) is provably unaffected.
+
+### Regenerating the Mid-Sem dataset
+
+```bash
+node tools/build-midsem.js      # rewrites data/midsem.js
+node tools/validate-midsem.js   # data checks
+```
+
+Source: `tools/raw/midsem_venues_1.csv` (course → venue, one row per venue
+allocation) and `tools/raw/midsem_venues_2.csv` (course → date/shift, one row
+per course), joined by course code. Shift 1 is 10:00–11:30, Shift 2 is
+15:00–16:30 (`SHIFTS` in `tools/build-midsem.js`) — both fixed, published
+times, applied to every exam in that shift.
+
 ## Replacing the timetable
 
 The dataset is deliberately separate from the UI. Either edit
@@ -215,7 +288,8 @@ No UI code needs to change.
 ## Tests
 
 ```bash
-node tools/validate-data.js                       # data checks
+node tools/validate-data.js                       # timetable data checks
+node tools/validate-midsem.js                     # Mid-Sem data checks
 NODE_PATH=$(npm root -g) node tests/app.test.js   # browser checks
 ```
 
@@ -254,8 +328,9 @@ browser context offline to verify the service worker.
   January 2027) and does not repeat automatically in later years — a date
   outside either loaded list is simply not a holiday/break. Swap the file's
   contents for a future academic year's dates when needed.
-- No exam dates, one-off reschedules or instructor names — the source data
-  contains none of these.
+- No end-of-semester exam dates, one-off reschedules or instructor names —
+  the source data contains none of these. Mid-Sem exam dates, times and
+  venues are covered separately (see "Mid-Sem examinations" above).
 - Course names come from `Autumn_2026_Offered_Courses.csv`. All 122 timetabled
   codes matched a name.
 - The selection is stored in `localStorage` under `iiserk.tt.courses.v1`, so it

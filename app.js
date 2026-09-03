@@ -103,6 +103,11 @@
   // course selection: resetting courses must not throw away customisations,
   // and re-selecting the same course brings its customisations back.
   var KEY_CUSTOM = 'iiserk.tt.custom.v1';
+  // Mid-Sem edits (date/time/venue). A separate key again, for the same
+  // reason KEY_CUSTOM is separate from KEY_COURSES - and separate from
+  // KEY_CUSTOM too, since Mid-Sem exams are not timetable events and must
+  // never be resettable/removable together with a class edit.
+  var KEY_MIDSEM = 'iiserk.tt.midsem.v1';
 
   // ---------------------------------------------------------------- storage
 
@@ -356,6 +361,175 @@
     return saveCustom();
   }
 
+  // ------------------------------------------------------------ Mid-Sem data
+  //
+  // data/midsem.js (window.MIDSEM_DATA) is bundled, immutable source data -
+  // one exam per course, no network dependency - exactly like TIMETABLE_DATA.
+  // Personal edits (date/time/venue only; course code/name are read-only and
+  // always come from MIDSEM_DATA + NAME_BY_CODE) live in their own
+  // localStorage layer, the same sparse-overrides shape as the timetable
+  // customisation layer above but under a separate key: resetting timetable
+  // edits must never touch Mid-Sem edits, and vice versa.
+  var MIDSEM = window.MIDSEM_DATA || { shifts: {}, exams: [] };
+  var MIDSEM_EDITABLE_FIELDS = ['date', 'time', 'venue'];
+
+  var midsemCustom = { overrides: {} };
+
+  function loadMidsemCustom() {
+    var out = { overrides: {} };
+    var raw = store.get(KEY_MIDSEM);
+    if (!raw) return out;
+
+    var parsed;
+    try { parsed = JSON.parse(raw); } catch (e) { return out; }
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return out;
+
+    var src = parsed.overrides;
+    if (src && typeof src === 'object' && !Array.isArray(src)) {
+      Object.keys(src).forEach(function (id) {
+        var patch = src[id];
+        if (!id || !patch || typeof patch !== 'object' || Array.isArray(patch)) return;
+        var clean = {};
+        if (typeof patch.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(patch.date)) clean.date = patch.date;
+        if (typeof patch.time === 'string' && /^([01]\d|2[0-3]):[0-5]\d$/.test(patch.time)) clean.time = patch.time;
+        if (typeof patch.venue === 'string' && patch.venue.trim()) clean.venue = patch.venue;
+        if (Object.keys(clean).length) out.overrides[id] = clean;
+      });
+    }
+    return out;
+  }
+
+  var midsemEffectiveCache = null;
+  function invalidateMidsemEffective() { midsemEffectiveCache = null; }
+
+  function saveMidsemCustom() {
+    invalidateMidsemEffective();
+    if (!Object.keys(midsemCustom.overrides).length) {
+      store.remove(KEY_MIDSEM);
+      return true;
+    }
+    return store.set(KEY_MIDSEM, JSON.stringify({ version: 1, overrides: midsemCustom.overrides }));
+  }
+
+  function midsemCustomCount() {
+    return Object.keys(midsemCustom.overrides).length;
+  }
+
+  function midsemOriginalById(id) {
+    for (var i = 0; i < MIDSEM.exams.length; i++) {
+      if (MIDSEM.exams[i].id === id) return MIDSEM.exams[i];
+    }
+    return null;
+  }
+
+  /**
+   * Every Mid-Sem exam with edits applied, course name resolved and a sortable
+   * `minutes` derived - unfiltered by course selection. Mirrors
+   * effectiveEvents() in shape and in never mutating MIDSEM.
+   */
+  function allEffectiveMidsemExams() {
+    if (midsemEffectiveCache) return midsemEffectiveCache;
+
+    var out = MIDSEM.exams.map(function (o) {
+      var patch = midsemCustom.overrides[o.id] || null;
+      var time = pick(patch, 'time', o.time);
+      var parts = time.split(':');
+      return {
+        id: o.id,
+        course: o.course,
+        name: NAME_BY_CODE[o.course] || '',
+        date: pick(patch, 'date', o.date),
+        time: time,
+        minutes: (+parts[0]) * 60 + (+parts[1]),
+        duration: o.duration,
+        venue: pick(patch, 'venue', o.venue),
+        modified: !!patch
+      };
+    });
+
+    midsemEffectiveCache = out;
+    return out;
+  }
+
+  /**
+   * The Mid-Sem exams for the courses the user has selected, one per course,
+   * in chronological order - what the Mid-Sem card and full schedule show,
+   * and what the Today suppression logic below checks against.
+   */
+  function effectiveMidsemExams(selected) {
+    return allEffectiveMidsemExams()
+      .filter(function (e) { return selected.has(e.course); })
+      .sort(function (a, b) {
+        return a.date.localeCompare(b.date) || a.minutes - b.minutes || a.course.localeCompare(b.course);
+      });
+  }
+
+  /**
+   * Store `values` (date/time/venue) as a sparse patch against the published
+   * exam. Course code and name are never part of `values` - they are not
+   * editable fields for a Mid-Sem entry.
+   */
+  function saveMidsemOverride(id, values) {
+    var orig = midsemOriginalById(id);
+    if (!orig) return false;
+
+    var patch = {};
+    MIDSEM_EDITABLE_FIELDS.forEach(function (f) {
+      if (has(values, f) && values[f] !== orig[f]) patch[f] = values[f];
+    });
+
+    if (Object.keys(patch).length) midsemCustom.overrides[id] = patch;
+    else delete midsemCustom.overrides[id];
+    return saveMidsemCustom();
+  }
+
+  function resetMidsemCustomisations() {
+    midsemCustom = { overrides: {} };
+    return saveMidsemCustom();
+  }
+
+  /** The end minute of an exam's interval, for overlap checks. */
+  function midsemExamEnd(e) { return e.minutes + e.duration; }
+
+  /** True if event `e`'s [minutes, minutes+duration) interval overlaps any of `intervals`. */
+  function overlapsAnyInterval(e, intervals) {
+    return intervals.some(function (iv) { return e.minutes < iv.end && e.minutes + e.duration > iv.start; });
+  }
+
+  /**
+   * The selected-course Mid-Sem exam intervals active on the calendar date
+   * `dateKey` ("YYYY-MM-DD"), using the user's edited date/time. Empty on any
+   * date with no Mid-Sem exam for a selected course.
+   */
+  function midsemIntervalsOn(selected, dateKey) {
+    return effectiveMidsemExams(selected)
+      .filter(function (e) { return e.date === dateKey; })
+      .map(function (e) { return { start: e.minutes, end: midsemExamEnd(e) }; });
+  }
+
+  /**
+   * Current + next selected-course Mid-Sem exam, from the device clock.
+   * `all` is the full chronological list (used to decide whether the Mid-Sem
+   * card has anything to show at all).
+   */
+  function midsemContext(selected, now) {
+    var todayKey = localDateKey(now);
+    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    var exams = effectiveMidsemExams(selected);
+
+    var current = exams.filter(function (e) {
+      return e.date === todayKey && nowMin >= e.minutes && nowMin < midsemExamEnd(e);
+    });
+
+    var next = null;
+    for (var i = 0; i < exams.length; i++) {
+      var e = exams[i];
+      if (e.date > todayKey || (e.date === todayKey && e.minutes > nowMin)) { next = e; break; }
+    }
+
+    return { current: current, next: next, all: exams };
+  }
+
   // ------------------------------------------------------------------ state
 
   var state = {
@@ -430,8 +604,12 @@
    * a whole day from the scan regardless of what the timetable says - used
    * to skip academic breaks without computeNow() itself ever knowing they
    * exist (Week view depends on computeNow() and must not change).
+   * `filterCandidates(date, list)`, when given, narrows a day's candidates
+   * further still - used for Mid-Sem suppression, which cancels only the
+   * overlapping time slot rather than the whole day. Both hooks are optional
+   * and unused by computeNow()'s own (Week-shared) call.
    */
-  function scanForNext(selected, now, nowMin, dayLimit, skip) {
+  function scanForNext(selected, now, nowMin, dayLimit, skip, filterCandidates) {
     var next = [], nextOffset = 0;
     for (var offset = 0; offset <= dayLimit && !next.length; offset++) {
       var d = new Date(now.getTime());
@@ -442,6 +620,7 @@
       var candidates = eventsFor(dayName, selected).filter(function (e) {
         return offset > 0 || e.minutes > nowMin;
       });
+      if (filterCandidates) candidates = filterCandidates(d, candidates);
       if (!candidates.length) continue;
       var first = candidates[0].minutes;
       next = candidates.filter(function (e) { return e.minutes === first; });
@@ -501,6 +680,67 @@
   function computeNextSkippingBreaks(selected, now) {
     var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
     return scanForNext(selected, now, nowMin, NEXT_SCAN_DAYS_SKIPPING_BREAKS, breakOn);
+  }
+
+  /**
+   * A day's candidates with any Mid-Sem-overlapping slot removed - "no
+   * regular classes during a Mid-Sem examination period" (see
+   * midsemIntervalsOn()). A plain filterCandidates hook for scanForNext();
+   * never used by computeNow() or Week, exactly like computeNextSkippingBreaks
+   * above.
+   */
+  function suppressMidsemCandidates(selected) {
+    return function (date, candidates) {
+      var intervals = midsemIntervalsOn(selected, localDateKey(date));
+      if (!intervals.length) return candidates;
+      return candidates.filter(function (e) { return !overlapsAnyInterval(e, intervals); });
+    };
+  }
+
+  /**
+   * Today-tab-only: computeNow(), but with any class that overlaps an active
+   * Mid-Sem exam (for a selected course) removed from "current" - a genuine
+   * date/time interval overlap, never a course-code match, per the "no
+   * regular classes during Mid-Sem" rule. Never touches computeNow() itself,
+   * so Week view (which calls computeNow() directly) is unaffected.
+   */
+  function computeNowWithMidsem(selected, now) {
+    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    var today = teachingDay(now);
+    var intervals = midsemIntervalsOn(selected, localDateKey(now));
+
+    var current = [];
+    if (today) {
+      current = eventsFor(today, selected).filter(function (e) {
+        return nowMin >= e.minutes && nowMin < e.minutes + e.duration;
+      });
+      if (intervals.length) current = current.filter(function (e) { return !overlapsAnyInterval(e, intervals); });
+    }
+
+    var scan = scanForNext(selected, now, nowMin, 7, null, suppressMidsemCandidates(selected));
+
+    return {
+      today: today,
+      nowMin: nowMin,
+      current: current,
+      remaining: current.length ? (current[0].minutes + current[0].duration - nowMin) : null,
+      elapsed: current.length ? (nowMin - current[0].minutes) : null,
+      next: scan.next,
+      nextOffset: scan.nextOffset,
+      startsIn: scan.startsIn
+    };
+  }
+
+  /**
+   * Today-tab-only: the "Next" card's lookup, skipping both academic breaks
+   * and any slot suppressed by an active Mid-Sem exam - the union of
+   * computeNextSkippingBreaks() and computeNowWithMidsem()'s scan, kept as
+   * its own function so neither of those two (already independently used
+   * and tested) has to change.
+   */
+  function computeNextSkippingBreaksAndMidsem(selected, now) {
+    var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+    return scanForNext(selected, now, nowMin, NEXT_SCAN_DAYS_SKIPPING_BREAKS, breakOn, suppressMidsemCandidates(selected));
   }
 
   // ------------------------------------------------------------- rendering
@@ -700,6 +940,83 @@
     return html;
   }
 
+  /** "Today" / "Tomorrow" / "Saturday, 15 August" for a Mid-Sem exam's date. */
+  function midsemDateLabel(dateStr, now) {
+    if (dateStr === localDateKey(now)) return 'Today';
+    var tomorrow = new Date(now.getTime());
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    if (dateStr === localDateKey(tomorrow)) return 'Tomorrow';
+    return weekdayDate(new Date(dateStr + 'T00:00:00'));
+  }
+
+  function midsemLinkHtml() {
+    return '<button type="button" class="link-btn midsem-link" data-action="midsem-full">' +
+      'View full Mid-Sem schedule</button>';
+  }
+
+  /**
+   * The Today-tab Mid-Sem card: current exam(s) first, else the next
+   * upcoming one, else (courses selected have exams but none remain) a
+   * closing note - and always, when there is any Mid-Sem data for the
+   * selected courses at all, a way into the full schedule/editor. Returns ''
+   * when no selected course has a Mid-Sem exam, so the card simply does not
+   * appear rather than showing an empty shell.
+   */
+  function midsemCardHtml(ctx, now) {
+    if (!state.selected.size || !ctx.all.length) return '';
+
+    if (ctx.current.length === 1) {
+      var e = ctx.current[0];
+      return '' +
+        '<div class="midsem-card live">' +
+          '<div class="now-label"><span class="dot"></span>Mid-Sem exam now</div>' +
+          '<div class="now-course"><span class="now-code">' + esc(e.course) + '</span></div>' +
+          (e.name ? '<div class="now-name">' + esc(e.name) + '</div>' : '') +
+          '<div class="now-where">' + PIN_SVG + '<span>' + esc(e.venue) + '</span>' +
+            '<span>&middot;</span><span>' + esc(e.time) + '</span></div>' +
+          midsemLinkHtml() +
+        '</div>';
+    }
+
+    if (ctx.current.length > 1) {
+      // Two selected courses can share an exam slot (same date + shift) -
+      // shown as compact rows in one card, mirroring the concurrent-class
+      // treatment in nowCardHtml().
+      return '' +
+        '<div class="midsem-card live">' +
+          '<div class="now-label"><span class="dot"></span>Mid-Sem exams now' +
+            '<span class="now-count">' + ctx.current.length + ' at once</span></div>' +
+          ctx.current.map(function (e) {
+            return '<div class="now-row">' +
+              '<span class="now-row-code">' + esc(e.course) + '</span>' +
+              '<span class="now-row-room">' + esc(e.venue) + '</span>' +
+            '</div>';
+          }).join('') +
+          midsemLinkHtml() +
+        '</div>';
+    }
+
+    if (ctx.next) {
+      var n = ctx.next;
+      return '' +
+        '<div class="midsem-card">' +
+          '<div class="now-label">Next Mid-Sem exam</div>' +
+          '<div class="now-course"><span class="now-code">' + esc(n.course) + '</span></div>' +
+          (n.name ? '<div class="now-name">' + esc(n.name) + '</div>' : '') +
+          '<div class="now-where">' + PIN_SVG + '<span>' + esc(n.venue) + '</span></div>' +
+          '<div class="now-remain">' + esc(midsemDateLabel(n.date, now)) + ' &middot; ' + esc(n.time) + '</div>' +
+          midsemLinkHtml() +
+        '</div>';
+    }
+
+    return '' +
+      '<div class="midsem-card">' +
+        '<div class="now-label">Mid-Sem</div>' +
+        '<div class="now-empty">No more Mid-Sem exams for your courses.</div>' +
+        midsemLinkHtml() +
+      '</div>';
+  }
+
   function sameEvent(list, e) {
     for (var i = 0; i < list.length; i++) if (list[i].id === e.id) return true;
     return false;
@@ -725,14 +1042,17 @@
 
     // The "Next" line specifically must skip whole days that fall inside an
     // upcoming break (e.g. scanning forward from just before a break starts),
-    // even on a day that isn't itself special in any other way. This never
-    // touches computeNow()'s own current/next - eventsFor()/statusFor() below
-    // keep using the raw `info` - so Week view is completely unaffected: it
-    // never renders this card and only reads computeNow()'s original output.
-    var nextSkip = computeNextSkippingBreaks(state.selected, now);
+    // even on a day that isn't itself special in any other way, and must
+    // skip any slot that overlaps an active Mid-Sem exam - "no regular
+    // classes during a Mid-Sem examination period". Neither touches
+    // computeNow()'s own current/next - eventsFor()/statusFor() below keep
+    // using the raw `info` - so Week view is completely unaffected: it never
+    // renders this card and only reads computeNow()'s original output.
+    var midsemNow = computeNowWithMidsem(state.selected, now);
+    var nextSkip = computeNextSkippingBreaksAndMidsem(state.selected, now);
     var cardInfo = {
-      today: info.today, nowMin: info.nowMin, current: info.current,
-      remaining: info.remaining, elapsed: info.elapsed,
+      today: info.today, nowMin: info.nowMin, current: midsemNow.current,
+      remaining: midsemNow.remaining, elapsed: midsemNow.elapsed,
       next: nextSkip.next, nextOffset: nextSkip.nextOffset, startsIn: nextSkip.startsIn
     };
 
@@ -755,6 +1075,12 @@
     } else {
       $('now-card').innerHTML = nowCardHtml(cardInfo);
     }
+
+    // Independent of the now-card precedence above and of course selection
+    // gating below (midsemCardHtml() no-ops itself in both of those cases) -
+    // a Mid-Sem exam is its own section, never folded into the holiday/break
+    // states.
+    $('midsem-card').innerHTML = midsemCardHtml(midsemContext(state.selected, now), now);
 
     var list = $('today-list');
     if (!state.selected.size) {
@@ -793,7 +1119,16 @@
       return;
     }
 
-    var events = eventsFor(info.today, state.selected);
+    // No regular class is shown if it overlaps an active Mid-Sem exam on
+    // today's actual calendar date - a real interval overlap against the
+    // user's (possibly edited) exam times, never a course-code match, so an
+    // unrelated class during someone else's exam slot is suppressed too.
+    // The underlying timetable data is never touched; this filters only the
+    // rendered list.
+    var midsemIntervals = midsemIntervalsOn(state.selected, localDateKey(now));
+    var events = eventsFor(info.today, state.selected).filter(function (e) {
+      return !overlapsAnyInterval(e, midsemIntervals);
+    });
     $('today-head').textContent = info.today + ' · ' + plural(events.length, 'class');
     list.innerHTML = events.length
       ? events.map(function (e) { return eventHtml(e, statusFor(e, info, true)); }).join('')
@@ -963,6 +1298,14 @@
       if (c.removed) bits.push(plural(c.removed, 'class') + ' removed');
       $('changes-summary').textContent = bits.join(' · ') + ' - restore the original';
     }
+
+    var mCount = midsemCustomCount();
+    var mbtn = $('reset-midsem-btn');
+    mbtn.hidden = !mCount;
+    if (!mbtn.hidden) {
+      $('midsem-changes-summary').textContent =
+        plural(mCount, 'exam') + ' edited - restore the published schedule';
+    }
   }
 
   function closeSheet() {
@@ -1096,6 +1439,120 @@
     render();
   }
 
+  // ------------------------------------------------- Mid-Sem full schedule
+
+  /** "now" / "past" / "" for a Mid-Sem exam row, on the real calendar date+time. */
+  function midsemExamStatus(e, now) {
+    if (e.date === localDateKey(now)) {
+      var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
+      if (nowMin >= e.minutes && nowMin < midsemExamEnd(e)) return 'now';
+    }
+    var start = new Date(e.date + 'T00:00:00');
+    start.setHours(Math.floor(e.minutes / 60), e.minutes % 60, 0, 0);
+    return start.getTime() < now.getTime() ? 'past' : '';
+  }
+
+  function midsemRowHtml(e, status) {
+    return '' +
+      '<article class="event' + (status ? ' is-' + status : '') + '">' +
+        '<div class="rail">' +
+          '<div class="time">' + esc(e.time) + '</div>' +
+          '<div class="dur">' + esc(shortDate(new Date(e.date + 'T00:00:00'))) + '</div>' +
+        '</div>' +
+        '<div class="body">' +
+          '<div class="top">' +
+            '<span class="code">' + esc(e.course) + '</span>' +
+            (status === 'now' ? '<span class="badge live">Now</span>' : '') +
+            (e.modified ? '<span class="edited-flag">Edited</span>' : '') +
+          '</div>' +
+          (e.name ? '<div class="cname">' + esc(e.name) + '</div>' : '') +
+          '<div class="room">' + PIN_SVG + '<span>' + esc(e.venue) + '</span></div>' +
+        '</div>' +
+        '<button type="button" class="evt-menu" data-midsem="' + esc(e.id) + '" ' +
+          'aria-label="Edit ' + esc(e.course) + ' Mid-Sem exam">' +
+          DOTS_SVG +
+        '</button>' +
+      '</article>';
+  }
+
+  function renderMidsemList() {
+    var exams = effectiveMidsemExams(state.selected);
+    var now = new Date();
+    $('midsem-sheet-sub').textContent = exams.length
+      ? plural(exams.length, 'exam') + ' for your selected courses, in order'
+      : 'None of your selected courses have a Mid-Sem exam.';
+    $('midsem-list').innerHTML = exams.length
+      ? exams.map(function (e) { return midsemRowHtml(e, midsemExamStatus(e, now)); }).join('')
+      : emptyHtml('No Mid-Sem exams', 'None of your selected courses have a Mid-Sem exam.');
+  }
+
+  function openMidsemSheet() {
+    renderMidsemList();
+    $('midsem-backdrop').hidden = false;
+    $('midsem-sheet').hidden = false;
+  }
+
+  function closeMidsemSheet() {
+    $('midsem-backdrop').hidden = true;
+    $('midsem-sheet').hidden = true;
+  }
+
+  // --- edit a single exam's date/time/venue
+
+  var midsemEditingId = null;
+
+  function showMidsemEditError(msg) {
+    var el = $('midsem-edit-error');
+    el.textContent = msg;
+    el.hidden = !msg;
+    $('me-date').setAttribute('aria-invalid', String(/date/i.test(msg)));
+    $('me-time').setAttribute('aria-invalid', String(/time/i.test(msg)));
+    $('me-venue').setAttribute('aria-invalid', String(/venue/i.test(msg)));
+  }
+
+  function openMidsemEditSheet(id) {
+    var e = allEffectiveMidsemExams().filter(function (x) { return x.id === id; })[0];
+    if (!e) return;
+    midsemEditingId = id;
+    $('midsem-edit-sub').textContent = e.course + (e.name ? ' · ' + e.name : '');
+    $('me-date').value = e.date;
+    $('me-time').value = e.time;
+    $('me-venue').value = e.venue;
+    showMidsemEditError('');
+    $('midsem-edit-backdrop').hidden = false;
+    $('midsem-edit-sheet').hidden = false;
+  }
+
+  function closeMidsemEditSheet() {
+    midsemEditingId = null;
+    $('midsem-edit-backdrop').hidden = true;
+    $('midsem-edit-sheet').hidden = true;
+  }
+
+  function submitMidsemEdit() {
+    if (!midsemEditingId) return;
+
+    var values = {
+      date: $('me-date').value,
+      time: $('me-time').value,
+      venue: $('me-venue').value.trim()
+    };
+
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(values.date)) return showMidsemEditError('Enter a valid date.');
+    if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(values.time)) return showMidsemEditError('Enter a valid start time.');
+    if (!values.venue) return showMidsemEditError('Enter a venue.');
+
+    var id = midsemEditingId;
+    if (!saveMidsemOverride(id, values)) {
+      toast('Could not save - storage is blocked in this browser');
+    } else {
+      toast(midsemCustom.overrides[id] ? 'Exam updated' : 'Exam restored to the published schedule');
+    }
+    closeMidsemEditSheet();
+    renderMidsemList();
+    render();
+  }
+
   var toastTimer = null;
 
   function toast(msg) {
@@ -1200,9 +1657,11 @@
       renderWeek();
     });
 
-    // Empty-state CTA and the per-event "..." control (both views live here).
+    // Empty-state CTA, the per-event "..." control and the Mid-Sem card's
+    // "view full schedule" link (all three live in the Today/Week views).
     $('main').addEventListener('click', function (e) {
       if (e.target.closest('[data-action="pick"]')) { openPicker(true); return; }
+      if (e.target.closest('[data-action="midsem-full"]')) { openMidsemSheet(); return; }
       var menu = e.target.closest('[data-evt]');
       if (menu) openEventSheet(menu.dataset.evt);
     });
@@ -1273,6 +1732,23 @@
       if (std) $('f-duration').value = std;
     });
 
+    // --- Mid-Sem full schedule
+    $('midsem-close').addEventListener('click', closeMidsemSheet);
+    $('midsem-backdrop').addEventListener('click', closeMidsemSheet);
+
+    $('midsem-list').addEventListener('click', function (e) {
+      var btn = e.target.closest('[data-midsem]');
+      if (btn) openMidsemEditSheet(btn.dataset.midsem);
+    });
+
+    // --- Mid-Sem edit dialog
+    $('midsem-edit-cancel').addEventListener('click', closeMidsemEditSheet);
+    $('midsem-edit-backdrop').addEventListener('click', closeMidsemEditSheet);
+    $('midsem-edit-form').addEventListener('submit', function (e) {
+      e.preventDefault();
+      submitMidsemEdit();
+    });
+
     // --- settings
     $('open-settings').addEventListener('click', openSheet);
     $('close-settings').addEventListener('click', closeSheet);
@@ -1328,6 +1804,21 @@
       });
     });
 
+    $('reset-midsem-btn').addEventListener('click', function () {
+      closeSheet();
+      openConfirm({
+        title: 'Reset all Mid-Sem edits?',
+        body: 'This restores every edited exam\'s date, time and venue to the ' +
+              'published schedule. Your selected courses are not affected.',
+        okLabel: 'Reset edits',
+        onOk: function () {
+          resetMidsemCustomisations();
+          render();
+          toast('Mid-Sem edits reset');
+        }
+      });
+    });
+
     $('confirm-cancel').addEventListener('click', closeConfirm);
     $('confirm-backdrop').addEventListener('click', closeConfirm);
     $('confirm-ok').addEventListener('click', function () {
@@ -1340,7 +1831,9 @@
       if (e.key !== 'Escape') return;
       if (!$('confirm-dialog').hidden) closeConfirm();
       else if (!$('edit-sheet').hidden) closeEditSheet();
+      else if (!$('midsem-edit-sheet').hidden) closeMidsemEditSheet();
       else if (!$('event-sheet').hidden) closeEventSheet();
+      else if (!$('midsem-sheet').hidden) closeMidsemSheet();
       else if (!$('settings-sheet').hidden) closeSheet();
     });
 
@@ -1364,8 +1857,17 @@
     Object.freeze(DATA.events);
     Object.freeze(DATA);
 
+    // Same read-only treatment for the bundled Mid-Sem source data - only the
+    // separate override layer below is ever written to.
+    MIDSEM.exams.forEach(function (e) { Object.freeze(e); });
+    Object.freeze(MIDSEM.exams);
+    Object.freeze(MIDSEM);
+
     custom = loadCustom();
     invalidateEffective();
+
+    midsemCustom = loadMidsemCustom();
+    invalidateMidsemEffective();
 
     applyTheme();
     bind();
@@ -1410,9 +1912,20 @@
     breakContext: breakContext,
     computeNextSkippingBreaks: computeNextSkippingBreaks,
     breaks: BREAKS,
+    midsem: MIDSEM,
+    effectiveMidsemExams: effectiveMidsemExams,
+    allEffectiveMidsemExams: allEffectiveMidsemExams,
+    midsemContext: midsemContext,
+    computeNowWithMidsem: computeNowWithMidsem,
+    computeNextSkippingBreaksAndMidsem: computeNextSkippingBreaksAndMidsem,
+    midsemIntervalsOn: midsemIntervalsOn,
+    saveMidsemOverride: saveMidsemOverride,
+    resetMidsemCustomisations: resetMidsemCustomisations,
+    midsemCustomCount: midsemCustomCount,
     KEY_COURSES: KEY_COURSES,
     KEY_THEME: KEY_THEME,
-    KEY_CUSTOM: KEY_CUSTOM
+    KEY_CUSTOM: KEY_CUSTOM,
+    KEY_MIDSEM: KEY_MIDSEM
   };
 
   if (document.readyState === 'loading') {
