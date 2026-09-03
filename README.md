@@ -206,9 +206,14 @@ its layout and behaviour are untouched.
 
 - **Only your selected courses' exams are shown**, one exam per course. A
   course with several room allocations (roll-number-split sections) still
-  gets exactly one entry — every allocated venue is combined into that one
-  entry's Venue field (e.g. `"G02, G08"`), never split into duplicate exams
-  and never silently dropped.
+  gets exactly one entry — every allocated venue, together with the roll
+  number range sitting in it, is combined into that one entry's Venue field,
+  e.g. `"G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167
+  to 24MS249, 25MS020 to 25MS225)"` — semicolons between venues, since the
+  roll ranges themselves already contain commas. A single-venue course (the
+  whole class in one room) keeps a bare venue with no roll range, since there
+  is nothing to distinguish. Nothing from the source is ever split into
+  duplicate exams or silently dropped.
 - **Current exam**: if a selected course's exam is happening right now, the
   card shows it (course, name, venue, time), styled distinctly (amber) from
   both a live class and a holiday/break notice. Two courses can share an
@@ -258,10 +263,11 @@ node tools/build-midsem.js      # rewrites data/midsem.js
 node tools/validate-midsem.js   # data checks
 ```
 
-Source: `tools/raw/midsem_venues_1.csv` (course → venue, one row per venue
-allocation) and `tools/raw/midsem_venues_2.csv` (course → date/shift, one row
-per course), joined by course code. Shift 1 is 10:00–11:30, Shift 2 is
-15:00–16:30 (`SHIFTS` in `tools/build-midsem.js`) — both fixed, published
+Source: `tools/raw/midsem_venues_1.csv` (course → venue → roll-number range,
+one row per venue allocation) and `tools/raw/midsem_venues_2.csv` (course →
+date/shift, one row per course), joined by course code. Shift 1 is
+10:00–11:30, Shift 2 is 15:00–16:30 (`SHIFTS` in `tools/build-midsem.js`) —
+both fixed, published
 times, applied to every exam in that shift.
 
 ## Replacing the timetable

@@ -74,19 +74,32 @@ function main() {
 
   // --- venues: multiple rows per course are expected (roll-number-split
   // sections in different rooms) and are merged into ONE combined string per
-  // course - never one exam entry per venue row. "All" (a single section,
-  // whole class) passes through unchanged; e.g. CS2102 has two rows ("G02",
-  // "G08") and merges to "G02, G08" - no roll-number/section detail is kept,
-  // since only the venue matters for a personal timetable.
+  // course - never one exam entry per venue row, and the roll-number range
+  // is kept alongside its own venue rather than discarded. A course with a
+  // single row is always the whole class in one room ("All" in the roll
+  // column, confirmed for every one of the 73 single-row courses) and needs
+  // no roll detail; e.g. CS2102 has two rows ("G02" / a roll range, "G08" /
+  // another) and merges to "G02 (24MS001 to 24MS158, ...); G08 (24MS167 to
+  // 24MS249, ...)" - semicolons between venues, since the roll ranges
+  // themselves already contain commas.
   const vCol = header(venueRows);
-  const codeIdx = vCol('Course Code'), venueIdx = vCol('Venue (Room No.)');
+  const codeIdx = vCol('Course Code'), venueIdx = vCol('Venue (Room No.)'),
+        rollsIdx = vCol('Roll Numbers / Student Details');
   const venuesByCourse = new Map();
   for (const r of venueRows) {
     const code = r[codeIdx].trim();
     const venue = r[venueIdx].trim();
+    const rolls = r[rollsIdx].trim();
     if (!venuesByCourse.has(code)) venuesByCourse.set(code, []);
     const list = venuesByCourse.get(code);
-    if (list.indexOf(venue) < 0) list.push(venue);   // de-dupe an exact repeat
+    // De-dupe an exact repeat row (same venue AND same roll range).
+    if (!list.some((x) => x.venue === venue && x.rolls === rolls)) list.push({ venue, rolls });
+  }
+
+  /** One course's venue rows -> the single combined Venue field string. */
+  function combineVenue(rows) {
+    if (rows.length === 1) return rows[0].venue;
+    return rows.map((r) => `${r.venue} (${r.rolls})`).join('; ');
   }
 
   // --- dates/shifts: exactly one row per course.
@@ -134,7 +147,7 @@ function main() {
       minutes: hh * 60 + mm,
       duration,
       shift,
-      venue: venuesByCourse.get(course).join(', ')
+      venue: combineVenue(venuesByCourse.get(course))
     };
   });
 
@@ -171,8 +184,9 @@ function main() {
      *   minutes  - start time as minutes since midnight (sortable)
      *   duration - length in minutes (90 for both shifts)
      *   shift    - 1 or 2, informational
-     *   venue    - every allocated room for this course, comma-joined when
-     *              there is more than one (roll-number-split sections)
+     *   venue    - the room, or every allocated room with its roll-number
+     *              range when there is more than one (roll-number-split
+     *              sections), e.g. "G02 (24MS001 to 24MS158); G08 (...)"
      */
     exams: [
 ${exams.map((e) => '      ' + JSON.stringify(e)).join(',\n')}
@@ -188,7 +202,7 @@ ${exams.map((e) => '      ' + JSON.stringify(e)).join(',\n')}
 
   console.log(`Wrote ${path.relative(ROOT, OUT)}`);
   console.log(`  courses: ${exams.length}`);
-  console.log(`  multi-venue courses: ${exams.filter((e) => e.venue.indexOf(',') >= 0).length}`);
+  console.log(`  multi-venue courses: ${exams.filter((e) => e.venue.indexOf(';') >= 0).length}`);
   const byShift = exams.reduce((a, e) => (a[e.shift] = (a[e.shift] || 0) + 1, a), {});
   console.log(`  by shift: ${JSON.stringify(byShift)}`);
   const byDate = exams.reduce((a, e) => (a[e.date] = (a[e.date] || 0) + 1, a), {});

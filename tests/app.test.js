@@ -2217,10 +2217,12 @@ function clockScript(iso) {
     eq('the published timetable event count is unaffected by the Mid-Sem feature',
       await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
 
-    eq('a multi-venue course merges every allocated room, in source order',
+    eq('a multi-venue course merges every allocated room with its roll-number range, in source order',
       await page.evaluate(() => window.__tt.midsem.exams.find((e) => e.course === 'CS2102')),
       { id: 'midsem-cs2102', course: 'CS2102', date: '2026-09-12', time: '10:00',
-        minutes: 600, duration: 90, shift: 1, venue: 'G02, G08' });
+        minutes: 600, duration: 90, shift: 1,
+        venue: 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); ' +
+               'G08 (24MS167 to 24MS249, 25MS020 to 25MS225)' });
 
     check('Mid-Sem source data is frozen against writes', await page.evaluate(() => {
       const e = window.__tt.midsem.exams[0];
@@ -2258,8 +2260,10 @@ function clockScript(iso) {
       (await page.locator('#midsem-card .now-code').textContent()).trim(), 'CH2102');
     eq('the card labels it "Next Mid-Sem exam"',
       (await page.locator('#midsem-card .now-label').textContent()).trim(), 'Next Mid-Sem exam');
-    check('the venue shown is the merged, order-preserved string',
-      (await page.locator('#midsem-card .now-where').textContent()).includes('G02, G08'));
+    const nextWhere = await page.locator('#midsem-card .now-where').textContent();
+    check('the venue shown includes every allocated room, with its roll-number range',
+      nextWhere.includes('G05 (25MS002 to 25MS110, Reenrollment)') &&
+      nextWhere.includes('G02 (25MS111 to 25MS229)') && nextWhere.includes('G08 (25MS230 to 25MS328)'));
     eq('the date label reads "Tomorrow"',
       (await page.locator('#midsem-card .now-remain').textContent()).trim(), 'Tomorrow · 10:00');
     eq('the card is not styled as a current exam', await page.locator('#midsem-card .midsem-card.live').count(), 0);
@@ -2269,10 +2273,10 @@ function clockScript(iso) {
     await page.waitForSelector('#midsem-sheet:not([hidden])');
     eq('the full schedule lists the selected courses\' exams in chronological order',
       await midsemRows(page), [
-        ['10:00', 'LS2103', 'G05, G02, G08', false],
-        ['10:00', 'CH2102', 'G05, G02, G08', false],
-        ['10:00', 'CS2102', 'G02, G08', false],
-        ['15:00', 'CH2104', 'G05, G02, G08', false],
+        ['10:00', 'LS2103', 'G05 (25MS001 to 25MS113, Reenrollment); G02 (25MS114 to 25MS213); G08 (25MS214 to 25MS328)', false],
+        ['10:00', 'CH2102', 'G05 (25MS002 to 25MS110, Reenrollment); G02 (25MS111 to 25MS229); G08 (25MS230 to 25MS328)', false],
+        ['10:00', 'CS2102', 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false],
+        ['15:00', 'CH2104', 'G05 (25MS002 to 25MS110, Reenrollment); G02 (25MS111 to 25MS229); G08 (25MS230 to 25MS328)', false],
       ]);
     eq('the sub-header counts the exams',
       (await page.textContent('#midsem-sheet-sub')).trim(), '4 exams for your selected courses, in order');
@@ -2299,7 +2303,8 @@ function clockScript(iso) {
       window.TIMETABLE_DATA.courses.find((c) => c.code === 'CH2102').name);
     eq('the course name is shown', (await page.locator('#midsem-card .now-name').textContent()).trim(), courseName);
     const nowWhere = await page.locator('#midsem-card .now-where').textContent();
-    check('venue and time are both shown', nowWhere.includes('G02, G08') && nowWhere.includes('10:00'));
+    check('venue (with roll ranges) and time are both shown',
+      nowWhere.includes('G05 (25MS002 to 25MS110, Reenrollment)') && nowWhere.includes('10:00'));
 
     await page.click('[data-action="midsem-full"]');
     await page.waitForSelector('#midsem-sheet:not([hidden])');
@@ -2374,28 +2379,31 @@ function clockScript(iso) {
       window.TIMETABLE_DATA.courses.find((c) => c.code === 'CS2102').name);
     eq('the edit dialog names the read-only course and its name',
       (await page.textContent('#midsem-edit-sub')).trim(), 'CS2102 · ' + courseName);
-    eq('the dialog pre-fills the published date/time/venue', await page.evaluate(() => [
+    const publishedVenue = 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); ' +
+      'G08 (24MS167 to 24MS249, 25MS020 to 25MS225)';
+    eq('the dialog pre-fills the published date/time/venue, roll ranges included', await page.evaluate(() => [
       document.getElementById('me-date').value,
       document.getElementById('me-time').value,
       document.getElementById('me-venue').value,
-    ]), ['2026-09-12', '10:00', 'G02, G08']);
+    ]), ['2026-09-12', '10:00', publishedVenue]);
 
-    await page.fill('#me-venue', 'G02, G08, Overflow Hall');
+    await page.fill('#me-venue', publishedVenue + '; Overflow Hall');
     await page.click('#midsem-edit-save');
     await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
 
     eq('the edited exam is flagged and shows the new venue',
-      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08, Overflow Hall', true]]);
+      await midsemRows(page), [['10:00', 'CS2102', publishedVenue + '; Overflow Hall', true]]);
     eq('only the changed field is persisted (sparse patch)',
       await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.midsem.v1')).overrides),
-      { 'midsem-cs2102': { venue: 'G02, G08, Overflow Hall' } });
+      { 'midsem-cs2102': { venue: publishedVenue + '; Overflow Hall' } });
 
     await page.click('#midsem-close');
     await page.reload();
     await page.waitForSelector('#screen-app:not([hidden])');
     await page.click('[data-action="midsem-full"]');
     await page.waitForSelector('#midsem-sheet:not([hidden])');
-    eq('the edit survives a reload', await midsemRows(page), [['10:00', 'CS2102', 'G02, G08, Overflow Hall', true]]);
+    eq('the edit survives a reload',
+      await midsemRows(page), [['10:00', 'CS2102', publishedVenue + '; Overflow Hall', true]]);
 
     // --- moving the date/time to right now makes it the current exam
     await openMidsemEdit(page, 0);
@@ -2413,7 +2421,7 @@ function clockScript(iso) {
     await openMidsemEdit(page, 0);
     await page.fill('#me-date', '2026-09-12');
     await page.fill('#me-time', '10:00');
-    await page.fill('#me-venue', 'G02, G08');
+    await page.fill('#me-venue', publishedVenue);
     await page.click('#midsem-edit-save');
     await page.waitForSelector('#midsem-edit-sheet', { state: 'hidden' });
     eq('re-entering the published values clears the override',
@@ -2486,7 +2494,8 @@ function clockScript(iso) {
     await page.click('[data-action="midsem-full"]');
     await page.waitForSelector('#midsem-sheet:not([hidden])');
     eq('corrupt Mid-Sem data degrades to the published schedule, not a crash',
-      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08', false]]);
+      await midsemRows(page), [['10:00', 'CS2102',
+        'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
     await page.click('#midsem-close');
 
     await page.evaluate(() => localStorage.setItem('iiserk.tt.midsem.v1', JSON.stringify({
@@ -2502,7 +2511,8 @@ function clockScript(iso) {
     await page.click('[data-action="midsem-full"]');
     await page.waitForSelector('#midsem-sheet:not([hidden])');
     eq('invalid fields are dropped, published values are kept, unknown ids are ignored',
-      await midsemRows(page), [['10:00', 'CS2102', 'G02, G08', false]]);
+      await midsemRows(page), [['10:00', 'CS2102',
+        'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
     check('the app does not crash on malformed Mid-Sem storage', await page.isVisible('#screen-app'));
     await ctx.close();
   }

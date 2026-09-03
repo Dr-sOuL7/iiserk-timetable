@@ -98,29 +98,44 @@ check('exams sort chronologically by date then minutes with no ties broken wrong
     return sorted.every((e, i) => i === 0 || sorted[i - 1].date <= e.date);
   })());
 
-// 7. Venue data: every source venue row for a course is present in its
-// merged string - no silent loss - and no venue is fabricated.
-const rawVenuesByCourse = {};
+// 7. Venue + roll-number data: every source row for a course (venue AND its
+// roll-number range) is present in the combined string - no silent loss,
+// nothing fabricated. A single-row course ("All") keeps the bare venue; a
+// multi-row course gets "VENUE (ROLLS); VENUE (ROLLS)", one segment per row,
+// in source order, joined with "; " because the roll ranges themselves
+// already contain commas.
+const rawRowsByCourse = {};
 venueRows.forEach((r) => {
-  const code = r[0].trim(), venue = r[1].trim();
-  (rawVenuesByCourse[code] = rawVenuesByCourse[code] || []).push(venue);
+  const code = r[0].trim(), venue = r[1].trim(), rolls = r[2].trim();
+  (rawRowsByCourse[code] = rawRowsByCourse[code] || []).push({ venue, rolls });
 });
+function dedupeRows(rows) {
+  const out = [];
+  rows.forEach((r) => {
+    if (!out.some((o) => o.venue === r.venue && o.rolls === r.rolls)) out.push(r);
+  });
+  return out;
+}
+function expectedVenueString(rows) {
+  return rows.length === 1 ? rows[0].venue : rows.map((r) => `${r.venue} (${r.rolls})`).join('; ');
+}
 let venueMismatch = [];
 MS.exams.forEach((e) => {
-  const raw = [...new Set(rawVenuesByCourse[e.course])];
-  const got = e.venue.split(', ');
-  if (raw.length !== got.length || raw.some((v, i) => v !== got[i])) {
-    venueMismatch.push(e.course);
-  }
+  const raw = dedupeRows(rawRowsByCourse[e.course]);
+  if (e.venue !== expectedVenueString(raw)) venueMismatch.push(e.course);
 });
-check('every course\'s combined venue string exactly reflects its source rows, in order',
+check('every course\'s combined venue string exactly reflects its source rows and roll ranges, in order',
   venueMismatch.length === 0, venueMismatch.join(', ') || 'all matched');
 
-const multiVenue = MS.exams.filter((e) => e.venue.indexOf(',') >= 0);
-check('multi-venue courses exist and keep every venue (none silently discarded)',
+check('a single-row ("All") course never has a roll number silently attached',
+  MS.exams.filter((e) => dedupeRows(rawRowsByCourse[e.course]).length === 1)
+    .every((e) => !/[()]/.test(e.venue)));
+
+const multiVenue = MS.exams.filter((e) => dedupeRows(rawRowsByCourse[e.course]).length > 1);
+check('multi-venue courses exist and keep every venue and roll range (none silently discarded)',
   multiVenue.length > 0 && multiVenue.every((e) => {
-    const raw = rawVenuesByCourse[e.course];
-    return new Set(raw).size === e.venue.split(', ').length;
+    const raw = dedupeRows(rawRowsByCourse[e.course]);
+    return raw.every((r) => e.venue.includes(r.venue) && e.venue.includes(r.rolls));
   }), `${multiVenue.length} multi-venue courses`);
 
 // 8. No malformed/empty venue strings.
