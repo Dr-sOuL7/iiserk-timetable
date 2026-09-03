@@ -83,7 +83,7 @@
       {"id":"midsem-ph2104","course":"PH2104","date":"2026-09-08","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G05 (25MS001 to 25MS111, Reenrollment); G02 (25MS112 to 25MS236); G08 (25MS237 to 25MS327)"},
       {"id":"midsem-ph4104","course":"PH4104","date":"2026-09-08","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"110"},
       {"id":"midsem-ph5103","course":"PH5103","date":"2026-09-08","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G06"},
-      {"id":"midsem-ch4121","course":"CH4121","date":"2026-09-09","time":"10:00","minutes":600,"duration":90,"shift":1,"venue":"110 (23M5006 to 23MS266, Reenrollment); 111 (23MS268 to 23MS273, MP, RS, VS)"},
+      {"id":"midsem-ch4121","course":"CH4121","date":"2026-09-09","time":"10:00","minutes":600,"duration":90,"shift":1,"venue":"110 (23MS006 to 23MS266, Reenrollment); 111 (23MS268 to 23MS273, MP, RS, VS)"},
       {"id":"midsem-ch4126","course":"CH4126","date":"2026-09-09","time":"10:00","minutes":600,"duration":90,"shift":1,"venue":"112"},
       {"id":"midsem-es3101","course":"ES3101","date":"2026-09-09","time":"10:00","minutes":600,"duration":90,"shift":1,"venue":"101"},
       {"id":"midsem-es4108","course":"ES4108","date":"2026-09-09","time":"10:00","minutes":600,"duration":90,"shift":1,"venue":"G09"},
