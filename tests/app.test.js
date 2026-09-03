@@ -2221,7 +2221,7 @@ function clockScript(iso) {
       await page.evaluate(() => window.__tt.midsem.exams.find((e) => e.course === 'CS2102')),
       { id: 'midsem-cs2102', course: 'CS2102', date: '2026-09-12', time: '10:00',
         minutes: 600, duration: 90, shift: 1,
-        venue: 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); ' +
+        venue: 'G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); ' +
                'G08 (24MS167 to 24MS249, 25MS020 to 25MS225)' });
 
     check('Mid-Sem source data is frozen against writes', await page.evaluate(() => {
@@ -2275,7 +2275,7 @@ function clockScript(iso) {
       await midsemRows(page), [
         ['10:00', 'LS2103', 'G05 (25MS001 to 25MS113, Reenrollment); G02 (25MS114 to 25MS213); G08 (25MS214 to 25MS328)', false],
         ['10:00', 'CH2102', 'G05 (25MS002 to 25MS110, Reenrollment); G02 (25MS111 to 25MS229); G08 (25MS230 to 25MS328)', false],
-        ['10:00', 'CS2102', 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false],
+        ['10:00', 'CS2102', 'G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false],
         ['15:00', 'CH2104', 'G05 (25MS002 to 25MS110, Reenrollment); G02 (25MS111 to 25MS229); G08 (25MS230 to 25MS328)', false],
       ]);
     eq('the sub-header counts the exams',
@@ -2379,7 +2379,7 @@ function clockScript(iso) {
       window.TIMETABLE_DATA.courses.find((c) => c.code === 'CS2102').name);
     eq('the edit dialog names the read-only course and its name',
       (await page.textContent('#midsem-edit-sub')).trim(), 'CS2102 · ' + courseName);
-    const publishedVenue = 'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); ' +
+    const publishedVenue = 'G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); ' +
       'G08 (24MS167 to 24MS249, 25MS020 to 25MS225)';
     eq('the dialog pre-fills the published date/time/venue, roll ranges included', await page.evaluate(() => [
       document.getElementById('me-date').value,
@@ -2495,7 +2495,7 @@ function clockScript(iso) {
     await page.waitForSelector('#midsem-sheet:not([hidden])');
     eq('corrupt Mid-Sem data degrades to the published schedule, not a crash',
       await midsemRows(page), [['10:00', 'CS2102',
-        'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
+        'G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
     await page.click('#midsem-close');
 
     await page.evaluate(() => localStorage.setItem('iiserk.tt.midsem.v1', JSON.stringify({
@@ -2512,7 +2512,7 @@ function clockScript(iso) {
     await page.waitForSelector('#midsem-sheet:not([hidden])');
     eq('invalid fields are dropped, published values are kept, unknown ids are ignored',
       await midsemRows(page), [['10:00', 'CS2102',
-        'G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
+        'G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); G08 (24MS167 to 24MS249, 25MS020 to 25MS225)', false]]);
     check('the app does not crash on malformed Mid-Sem storage', await page.isVisible('#screen-app'));
     await ctx.close();
   }

@@ -208,7 +208,7 @@ its layout and behaviour are untouched.
   course with several room allocations (roll-number-split sections) still
   gets exactly one entry — every allocated venue, together with the roll
   number range sitting in it, is combined into that one entry's Venue field,
-  e.g. `"G02 (24MS001 to 24MS158, 22MS213, 23M5013 to 23MS256); G08 (24MS167
+  e.g. `"G02 (24MS001 to 24MS158, 22MS213, 23MS013 to 23MS256); G08 (24MS167
   to 24MS249, 25MS020 to 25MS225)"` — semicolons between venues, since the
   roll ranges themselves already contain commas. A single-venue course (the
   whole class in one room) keeps a bare venue with no roll range, since there
