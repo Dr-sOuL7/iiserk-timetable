@@ -73,7 +73,19 @@ function clockScript(iso) {
 
   async function newPage(ctx, opts = {}) {
     const page = await ctx.newPage();
-    page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
+    page.on('console', (m) => {
+      // A blocked/failed load of the Google tag (ad-blocker, offline, a
+      // network-restricted CI sandbox) must never count as an app error -
+      // it is a fire-and-forget external analytics script the app's own
+      // functionality never depends on. The failing URL shows up in the
+      // console message's location, not its text. Anything else - including
+      // a real JS error thrown from a googletagmanager.com-hosted script -
+      // still fails the check.
+      if (m.type() !== 'error') return;
+      if (/googletagmanager\.com/.test(m.location().url) &&
+          /^Failed to load resource/.test(m.text())) return;
+      errors.push(m.text());
+    });
     page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
     if (opts.clock) await page.addInitScript(clockScript(opts.clock));
     return page;
