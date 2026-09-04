@@ -2714,6 +2714,30 @@ function clockScript(iso) {
     await ctx.close();
   }
 
+  // ============ 51. Next-class day badge disambiguates a far-off day with a date ============
+  {
+    // The exact scenario a real user hit: Friday 4 Sept, the next PH3104
+    // class is skipped past the whole Mid-Sem week to Monday 14 Sept
+    // (offset 10) - "MONDAY" alone looks identical to next Monday the 7th
+    // (which is inside the break and correctly excluded), so the date must
+    // be shown to disambiguate.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-04T15:38:00' });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const offset = await page.evaluate(() =>
+      window.__tt.computeNextSkippingBreaksAndMidsem(new Set(['PH3104']), new Date()).nextOffset);
+    eq('sanity check: the next class really is 10 days out, past the whole break', offset, 10);
+    eq('the day badge disambiguates with the date beyond a week out',
+      (await page.locator('.now-day').textContent()).trim(), 'Monday, 14 Sep');
+    await ctx.close();
+  }
+
+  // Within a week the day name alone is unambiguous, e.g. Saturday ->
+  // Monday (offset 2) - already covered in section 2 ("a next class on
+  // another day is labelled with that day", plain "Monday", no date).
+
   await browser.close();
   server.close();
 

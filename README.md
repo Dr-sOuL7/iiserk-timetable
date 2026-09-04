@@ -175,7 +175,10 @@ same card component, and the same rendering precedence rules.
   Today-tab-only, in `computeNextSkippingBreaks()`; `computeNow()` itself
   (which Week view depends on for its own current/next-class highlighting)
   is completely unmodified — see "Local date, not UTC" below for why this
-  split exists at all.
+  split exists at all. Beyond a week out, the day badge also shows the date
+  (e.g. "MONDAY, 14 SEP" rather than bare "MONDAY") — otherwise a class
+  skipped past a whole break reads identically to one happening this coming
+  week, which is exactly the ambiguity a break of any real length creates.
 - **Mid-Sem Examinations (5–13 September 2026)** is a break like any other —
   no regular classes anywhere on Today for that whole week, and Next Class
   skips straight through to Monday 14 September. It coexists with, and is

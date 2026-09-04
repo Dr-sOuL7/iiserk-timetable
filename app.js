@@ -813,6 +813,18 @@
     return date.getDate() + ' ' + MONTH_NAMES[date.getMonth()];
   }
 
+  /** "D Mon" (3-letter month) - for the Next-class day badge when far out. */
+  function tinyDate(date) {
+    return date.getDate() + ' ' + MONTH_NAMES[date.getMonth()].slice(0, 3);
+  }
+
+  /** The calendar date `offset` days after `now` - for labelling a far-off "next class". */
+  function dateAtOffset(now, offset) {
+    var d = new Date(now.getTime());
+    d.setDate(d.getDate() + offset);
+    return d;
+  }
+
   /**
    * Today is a normal day but tomorrow is a holiday. Compact, and placed
    * ABOVE the normal current/next card - it never replaces today's classes.
@@ -910,6 +922,12 @@
       if (info.nextOffset === 0) when = 'in ' + humanDuration(info.startsIn);
       else if (info.nextOffset === 1) when = 'tomorrow';
       else when = 'on ' + n.day;
+      var dayBadge = info.nextOffset === 1 ? 'Tomorrow' : n.day;
+      // Beyond a week out, the day name alone is ambiguous - "Monday" could
+      // mean this coming Monday or one much further away (e.g. skipped past
+      // a whole break, see computeNextSkippingBreaks()) - so the date is
+      // added to disambiguate at a glance.
+      if (info.nextOffset > 7 && info.nextDate) dayBadge += ', ' + tinyDate(info.nextDate);
       html +=
         '<div class="now-card">' +
           '<div class="now-label">Next' + (info.current.length ? '' : ' class') + '</div>' +
@@ -918,7 +936,7 @@
             // "not today" is obvious at a glance rather than only in the
             // "Starts ..." line below.
             (info.nextOffset > 0
-              ? '<span class="now-day">' + esc(info.nextOffset === 1 ? 'Tomorrow' : n.day) + '</span>'
+              ? '<span class="now-day">' + esc(dayBadge) + '</span>'
               : '') +
             '<span class="badge ' + n.type + '">' + esc(n.type) + '</span></div>' +
           '<div class="now-name"><strong>' + esc(n.course) + '</strong>' +
@@ -1053,7 +1071,8 @@
     var cardInfo = {
       today: info.today, nowMin: info.nowMin, current: midsemNow.current,
       remaining: midsemNow.remaining, elapsed: midsemNow.elapsed,
-      next: nextSkip.next, nextOffset: nextSkip.nextOffset, startsIn: nextSkip.startsIn
+      next: nextSkip.next, nextOffset: nextSkip.nextOffset, startsIn: nextSkip.startsIn,
+      nextDate: nextSkip.next.length ? dateAtOffset(now, nextSkip.nextOffset) : null
     };
 
     // Precedence (a break is the coarser, more encompassing state, so it
