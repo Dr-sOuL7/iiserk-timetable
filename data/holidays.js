@@ -43,6 +43,12 @@
   ];
 
   global.BREAK_DATA = [
+    // End is 13 Sept (a Sunday, one day past the exams' actual last day of
+    // 12 Sept) purely so the auto-generated "Classes resume {date}" message
+    // always resolves to the real first teaching day, Monday 14 Sept -
+    // Sunday itself already has no classes either way, so this changes
+    // nothing about which classes are hidden.
+    { start: '2026-09-05', end: '2026-09-13', name: 'Mid-Sem Examinations' },
     { start: '2026-10-17', end: '2026-10-25', name: 'Autumn Break' },
     { start: '2026-12-13', end: '2027-01-03', name: 'Winter Vacation' }
   ];

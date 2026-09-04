@@ -1893,8 +1893,8 @@ function clockScript(iso) {
     await page.goto(base);
     await page.waitForSelector('#screen-setup:not([hidden])');
 
-    eq('the break dataset loaded exactly the 2 documented breaks',
-      await page.evaluate(() => window.__tt.breaks.length), 2);
+    eq('the break dataset loaded exactly the 3 documented breaks',
+      await page.evaluate(() => window.__tt.breaks.length), 3);
     eq('the break dataset is a separate global, not merged into TIMETABLE_DATA',
       await page.evaluate(() => 'breaks' in window.TIMETABLE_DATA), false);
 
@@ -2204,8 +2204,8 @@ function clockScript(iso) {
     eq('the break state renders correctly with no network',
       (await cold.locator('.now-card .now-label').textContent()).trim(), 'On break');
     eq('the break name renders offline', (await cold.locator('.holiday-name').textContent()).trim(), 'Autumn Break');
-    eq('offline break lookup still finds both configured breaks',
-      await cold.evaluate(() => window.__tt.breaks.length), 2);
+    eq('offline break lookup still finds all 3 configured breaks',
+      await cold.evaluate(() => window.__tt.breaks.length), 3);
     eq('the offline Next-class scan still correctly skips break days',
       await cold.evaluate(() => {
         const t = window.__tt;
@@ -2343,22 +2343,40 @@ function clockScript(iso) {
 
   // ============ 45. Regular classes are suppressed during an active Mid-Sem exam ============
   {
-    // CH2102's exam is Monday 7 Sept, 10:00-11:30. Interval-overlap boundary
-    // cases on that same Monday: 08:55 ends before the exam starts (kept),
+    // CH2102's published exam (7 Sept) now falls inside the "Mid-Sem
+    // Examinations" break (5-13 Sept, see section 50), which already clears
+    // Today outright - too coarse a day to isolate THIS finer-grained,
+    // interval-overlap suppression from. So the exam is moved, via the
+    // override layer, to 21 Sept (still a Monday, still outside any break)
+    // at its published 10:00-11:30 time - proving suppression follows the
+    // user's edited exam date/time, exactly as required, and still exercises
+    // the same boundary cases: 08:55 ends before the exam starts (kept),
     // 09:50 ends after it starts (suppressed), 10:45 is fully inside
     // (suppressed), 11:40 starts exactly when the exam ends (kept) - and the
     // suppressed classes belong to OTHER courses entirely, proving this is a
     // real time-interval overlap, not a course-code match.
     const ctx = await browser.newContext(ctxOpts);
-    const page = await newPage(ctx, { clock: '2026-09-07T09:00:00' });
-    await seed(page, ['PH3104', 'PH3102', 'CH4104', 'PH4104', 'CH2102']);
+    const page = await newPage(ctx, { clock: '2026-09-21T09:00:00' });
+    await page.goto(base);
+    await page.evaluate(() => {
+      localStorage.setItem('iiserk.tt.courses.v1',
+        JSON.stringify(['PH3104', 'PH3102', 'CH4104', 'PH4104', 'CH2102']));
+      localStorage.setItem('iiserk.tt.midsem.v1',
+        JSON.stringify({ version: 1, overrides: { 'midsem-ch2102': { date: '2026-09-21' } } }));
+    });
+    await page.reload();
     await page.waitForSelector('#screen-app:not([hidden])');
 
+    // CH2102's own Monday 16:15 class is NOT suppressed here: unlike section
+    // 49 (where both courses' exams share the original 7 Sept date), only
+    // CH2102's exam was moved to 21 Sept - PH3102's exam stays on its
+    // published 7 Sept, so its 15:00-16:30 interval is not active today.
     eq('classes overlapping the active exam are suppressed; others are not',
       await listRows(page, '#today-list'),
       [['08:00', 'PH3104', 'Tutorial', 'G08', false],
        ['08:55', 'PH3104', 'Theory', 'G08', false],
-       ['11:40', 'PH4104', 'Theory', '102', false]]);
+       ['11:40', 'PH4104', 'Theory', '102', false],
+       ['16:15', 'CH2102', 'Theory', 'S N Bose Lecture Theatre', false]]);
 
     // --- Week view must be completely unaffected: same Monday, full list.
     await page.click('.tab[data-view="week"]');
@@ -2578,6 +2596,121 @@ function clockScript(iso) {
     eq('the offline Mid-Sem edit is intact, alongside the other selected course\'s published exam',
       await midsemRows(cold), [['10:00', 'CH2102', 'Overflow Hall', true], ['15:00', 'PH3102', 'G06', false]]);
     await ctx.setOffline(false);
+    await ctx.close();
+  }
+
+  // ============ 50. Mid-Sem Examinations week (5-13 Sept): no regular classes ============
+  {
+    // A break like any other in data/holidays.js, so it gets the exact same
+    // treatment already proven for Autumn Break/Winter Vacation - covering 5
+    // (Sat) to 13 (Sun) September inclusive so "Classes resume" always
+    // correctly resolves to Monday 14 September, the real first teaching day
+    // (13th itself is a Sunday, which never has classes regardless).
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-05T10:00:00' });   // first day, a Saturday
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('the label reads "On break"',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+    eq('the break is named "Mid-Sem Examinations"',
+      (await page.locator('.holiday-name').textContent()).trim(), 'Mid-Sem Examinations');
+    eq('resume-date phrasing correctly points at the real first teaching day',
+      (await page.locator('.now-card .now-empty').textContent()).trim(),
+      'No regular classes. Classes resume Monday, 14 September.');
+    eq('the weekend message is overridden, not shown alongside the break',
+      await page.locator('#today-list .event').count(), 0);
+    check('the empty state names the break, not the weekend',
+      /Mid-Sem Examinations/.test(await page.textContent('#today-list')) &&
+      !/weekend/i.test(await page.textContent('#today-list')));
+    await ctx.close();
+  }
+
+  {
+    // A weekday inside the range: CH2102's own exam is happening at this
+    // exact moment. The blanket "no regular classes" break notice and the
+    // student's own personal Mid-Sem exam card are independent and both
+    // render together - one says classes are paused this week, the other
+    // says exactly where/when to be for the exam itself.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-07T10:30:00' });   // Monday, mid-exam
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('the break card still shows on a weekday inside the range',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+    eq('no misleading "Current class" or "Next" label appears',
+      /Current class|^Next$/.test(await page.textContent('#now-card')), false);
+    eq('Today\'s class list is fully cleared, including CH2102\'s own unrelated 16:15 class',
+      await page.locator('#today-list .event').count(), 0);
+    check('the empty state names the break',
+      /Mid-Sem Examinations/.test(await page.textContent('#today-list')));
+
+    // The personal Mid-Sem exam card is a separate section and is unaffected.
+    eq('the personal Mid-Sem exam card still shows the exam happening right now',
+      (await page.locator('#midsem-card .now-label').textContent()).trim(), 'Mid-Sem exam now');
+    eq('it still names the course', (await page.locator('#midsem-card .now-code').textContent()).trim(), 'CH2102');
+    await ctx.close();
+  }
+
+  {
+    // Last day, a Sunday: the resume phrase says "tomorrow" (which is
+    // genuinely true this time - Monday 14 September - unlike naively ending
+    // the range on 12 September, where "tomorrow" would wrongly mean the
+    // 13th, a Sunday with no classes).
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-13T10:00:00' });
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('on the actual last day, the resume phrase says "tomorrow"',
+      (await page.locator('.now-card .now-empty').textContent()).trim(),
+      'No regular classes. Classes resume tomorrow.');
+    await ctx.close();
+  }
+
+  {
+    // Next-class scan from just before the range must skip the whole week
+    // and land on Monday 14 September - the real next teaching day.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-04T20:00:00' });   // Friday night, just before
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('the Next card skips the entire Mid-Sem week to the real next class',
+      await page.evaluate(() => {
+        const t = window.__tt;
+        return t.computeNextSkippingBreaks(new Set(['CH2102']), new Date()).nextOffset;
+      }), 10);   // Fri 4 Sept -> Mon 14 Sept is 10 days
+    check('the rendered card reflects the break-aware result',
+      /Next class/.test(await page.textContent('#now-card')) &&
+      /Monday/.test(await page.textContent('#now-card')));
+    await ctx.close();
+  }
+
+  {
+    // Week view must be completely unaffected - same Monday as section 45's
+    // suite, full unfiltered class list, no mention of the break anywhere.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-07T10:30:00' });
+    await seed(page, ['PH3104', 'PH3102', 'CH4104', 'PH4104', 'CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    eq('Week view shows the normal, unfiltered Monday schedule',
+      await listRows(page, '#week-list'),
+      [['08:00', 'PH3104', 'Tutorial', 'G08', false],
+       ['08:55', 'PH3104', 'Theory', 'G08', false],
+       ['09:50', 'PH3102', 'Theory', 'G02', false],
+       ['10:45', 'CH4104', 'Theory', '110', false],
+       ['11:40', 'PH4104', 'Theory', '102', false],
+       ['16:15', 'CH2102', 'Theory', 'S N Bose Lecture Theatre', false]]);
+    eq('day pill counts are the normal, unfiltered counts',
+      (await page.locator('#day-chips .chip').allTextContents()).join(','),
+      'Mon6,Tue4,Wed0,Thu6,Fri2');
+    check('no mention of the break anywhere in Week view',
+      !/Mid-Sem Examinations|break/i.test(await page.textContent('#view-week')));
     await ctx.close();
   }
 

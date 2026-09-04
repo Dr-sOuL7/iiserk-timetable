@@ -176,6 +176,16 @@ same card component, and the same rendering precedence rules.
   (which Week view depends on for its own current/next-class highlighting)
   is completely unmodified — see "Local date, not UTC" below for why this
   split exists at all.
+- **Mid-Sem Examinations (5–13 September 2026)** is a break like any other —
+  no regular classes anywhere on Today for that whole week, and Next Class
+  skips straight through to Monday 14 September. It coexists with, and is
+  independent of, the separate personal Mid-Sem exam card described below:
+  one says classes are paused this week, the other says exactly where and
+  when *your* exam is. The range's stored end date is 13 September (a
+  Sunday) rather than the exams' actual last day of 12 September, purely so
+  the auto-generated "Classes resume {date}" message always names the real
+  first teaching day, Monday 14 September — Sunday itself never has classes
+  either way, so this changes nothing about which classes are hidden.
 
 **Data.** `data/holidays.js` defines two flat arrays, both entirely separate
 from `window.TIMETABLE_DATA`:
