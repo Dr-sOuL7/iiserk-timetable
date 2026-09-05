@@ -21,8 +21,10 @@ const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday'];
 
 // Class lengths. Lectures and tutorials run 50 minutes with a 5-minute break
 // before the next one, which is why the published slot grid steps in 55s
-// (08:00, 08:55, 09:50, 10:45, 11:40, 13:30, 14:25, 15:20, 16:15, 17:10).
-// Labs run 160 minutes. Change these numbers to change every duration in the app.
+// (08:00, 08:55, 09:50, 10:45, 11:40, 12:35, 13:30, 14:25, 15:20, 16:15,
+// 17:10 - 12:35 only used by first-year courses; upperclass years keep that
+// slot free for lunch). Labs run 160 minutes. Change these numbers to change
+// every duration in the app.
 const DURATION_MINUTES = { Theory: 50, Tutorial: 50, Lab: 160 };
 
 // One-off exceptions to the standard per-type duration above: classes that run

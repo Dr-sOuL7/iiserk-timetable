@@ -158,7 +158,7 @@ function clockScript(iso) {
     check('first launch hides the timetable', !(await page.isVisible('#screen-app')));
 
     const rows = await page.locator('.course-row').count();
-    eq('picker lists every timetabled course', rows, 122);
+    eq('picker lists every timetabled course', rows, 131);
     eq('selected counter starts at zero',
       (await page.textContent('#sel-count')).trim(), '0 courses selected');
 
@@ -175,7 +175,7 @@ function clockScript(iso) {
 
     await page.click('#search-clear');
     await page.waitForTimeout(60);
-    eq('clearing search restores the full list', await page.locator('.course-row').count(), 122);
+    eq('clearing search restores the full list', await page.locator('.course-row').count(), 131);
 
     // --- department filter
     await page.click('[data-dept="PH"]');
@@ -454,7 +454,7 @@ function clockScript(iso) {
     eq('reset clears the saved selection',
       await page.evaluate(() => localStorage.getItem('iiserk.tt.courses.v1')), null);
     eq('reset keeps the embedded timetable data intact',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
     eq('picker after reset starts empty',
       (await page.textContent('#sel-count')).trim(), '0 courses selected');
 
@@ -527,7 +527,7 @@ function clockScript(iso) {
     await page.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
     check('app loads with the network switched off', await page.isVisible('#screen-app'));
     eq('offline app still has the full dataset',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
     eq('offline app still shows the right classes',
       await page.locator('#today-list .event .code').allTextContents(), ['PH3104', 'PH3104']);
     check('offline app still detects the current class',
@@ -576,9 +576,9 @@ function clockScript(iso) {
       };
     });
 
-    eq('dataset loaded in the browser', audit.total, 433);
-    eq('course catalog loaded in the browser', audit.courses, 122);
-    eq('per-day totals match the source', audit.perDay, [92, 85, 73, 89, 94]);
+    eq('dataset loaded in the browser', audit.total, 482);
+    eq('course catalog loaded in the browser', audit.courses, 131);
+    eq('per-day totals match the source', audit.perDay, [103, 94, 82, 104, 99]);
     check('every day list is chronologically sorted', audit.sortedOk);
     check('filtering never leaks an unselected course', audit.filteredAllInSet);
     eq('filtering returns every event of the chosen courses',
@@ -1114,7 +1114,7 @@ function clockScript(iso) {
     check('offline next-class detection uses the edited time',
       /12:00/.test(offlineCard), offlineCard.slice(0, 140));
     eq('offline app still holds the full published dataset',
-      await cold.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+      await cold.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
     eq('offline published data is still unmodified',
       await publishedEvent(cold, MON_PH3102), ['Monday', '09:50', 'PH3102', 'Theory', 'G02']);
 
@@ -1149,11 +1149,11 @@ function clockScript(iso) {
         publishedIdsUnique: new Set(D.events.map((e) => e.id)).size,
       };
     });
-    eq('the published event count is unchanged at 433', audit.published, 433);
+    eq('the published event count is unchanged at 482', audit.published, 482);
     eq('editing introduces no duplicate events', audit.uniqueIds, audit.effective);
-    eq('published ids remain unique', audit.publishedIdsUnique, 433);
+    eq('published ids remain unique', audit.publishedIdsUnique, 482);
     check('an edit that collides with another class does not merge them',
-      audit.effective === 433, `${audit.effective} effective events`);
+      audit.effective === 482, `${audit.effective} effective events`);
 
     eq('two classes may now share a slot without being merged',
       (await listRows(page, '#today-list')).map((r) => r[0] + ' ' + r[1] + ' ' + r[3]),
@@ -1755,8 +1755,8 @@ function clockScript(iso) {
     eq('Today\'s holiday empty state is unaffected by the customisation',
       await page.locator('#today-list .event').count(), 0);
 
-    eq('the published timetable is still exactly 433 events',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+    eq('the published timetable is still exactly 482 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
     check('the published timetable has no "holidays" field of its own',
       await page.evaluate(() => !('holidays' in window.TIMETABLE_DATA)));
     eq('the course selection is untouched by holiday rendering',
@@ -2119,8 +2119,8 @@ function clockScript(iso) {
     await page.click('.tab[data-view="today"]');
     eq('Today still shows the break state after a Week-view customisation',
       (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
-    eq('the published timetable is still exactly 433 events',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+    eq('the published timetable is still exactly 482 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
     eq('the course selection is untouched by break rendering',
       await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
       ['MA3101', 'PH3102', 'PH3104']);
@@ -2227,7 +2227,7 @@ function clockScript(iso) {
     eq('the Mid-Sem dataset is a separate global, not merged into TIMETABLE_DATA',
       await page.evaluate(() => 'exams' in window.TIMETABLE_DATA || 'midsem' in window.TIMETABLE_DATA), false);
     eq('the published timetable event count is unaffected by the Mid-Sem feature',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 433);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
 
     eq('a multi-venue course merges every allocated room with its roll-number range, in source order',
       await page.evaluate(() => window.__tt.midsem.exams.find((e) => e.course === 'CS2102')),
@@ -2737,6 +2737,84 @@ function clockScript(iso) {
   // Within a week the day name alone is unambiguous, e.g. Saturday ->
   // Monday (offset 2) - already covered in section 2 ("a next class on
   // another day is labelled with that day", plain "Monday", no date).
+
+  // ============ 52. First-year courses added, MA3110 rescheduled ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    const CATALOG = {
+      CH1101: 'Elements of Chemistry I',
+      CS1101: 'Introduction to Computer Programming',
+      ES1101: 'Introduction to Earth Science',
+      HU1101: 'Communicative English I',
+      HU1103: 'Communicative English II',
+      LS1101: 'Introduction to Biology I',
+      MA1101: 'Mathematics I',
+      PH1101: 'Mechanics I',
+      PH1102: 'Physics Laboratory I',
+    };
+    for (const code of Object.keys(CATALOG)) {
+      await page.fill('#search', code);
+      await page.waitForTimeout(50);
+      eq(`${code} is in the catalog as "${CATALOG[code]}"`,
+        (await page.locator(`.course-row[data-code="${code}"] .name`).textContent()).trim(), CATALOG[code]);
+    }
+    await page.click('#search-clear');
+    await page.waitForTimeout(50);
+    eq('picker lists exactly 131 courses (122 + 9 new first-years; LS1102 was withdrawn, never added)',
+      await page.locator('.course-row').count(), 131);
+    check('LS1102 (mentioned but withdrawn) was never added',
+      await page.locator('.course-row[data-code="LS1102"]').count() === 0);
+
+    for (const code of Object.keys(CATALOG)) {
+      await page.fill('#search', code);
+      await page.waitForTimeout(50);
+      await page.click(`.course-row[data-code="${code}"]`);
+    }
+    await page.fill('#search', 'MA3110');
+    await page.waitForTimeout(50);
+    await page.click('.course-row[data-code="MA3110"]');
+    await page.click('#continue-btn');
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    // --- MA3110: Monday/Tuesday only now, Wednesday/Friday dropped entirely
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    await page.click('[data-day="Monday"]');
+    eq('MA3110 keeps its original Monday 13:30 class and gains a new 14:25 one',
+      (await page.locator('#week-list .event').filter({ hasText: 'MA3110' })
+        .locator('.time').allTextContents()), ['13:30', '14:25']);
+    await page.click('[data-day="Tuesday"]');
+    eq('MA3110 moves its two former Wednesday classes to Tuesday 14:25 and 15:20',
+      (await page.locator('#week-list .event').filter({ hasText: 'MA3110' })
+        .locator('.time').allTextContents()), ['14:25', '15:20']);
+    await page.click('[data-day="Wednesday"]');
+    check('MA3110 no longer meets on Wednesday',
+      await page.locator('#week-list .event').filter({ hasText: 'MA3110' }).count() === 0);
+    await page.click('[data-day="Friday"]');
+    check('MA3110 no longer meets on Friday',
+      await page.locator('#week-list .event').filter({ hasText: 'MA3110' }).count() === 0);
+
+    // --- the new first-year courses render correctly, including the new
+    // 12:35 slot (previously unused - reserved for lunch on the upperclass
+    // grid) and a multi-room Lab/Tutorial spread across parallel sections.
+    await page.click('[data-day="Tuesday"]');
+    const tueRows = await listRows(page, '#week-list');
+    check('the new 12:35 slot renders (LS1101, Tuesday)',
+      tueRows.some((r) => r[0] === '12:35' && r[1] === 'LS1101'));
+    const cs1101Dur = (await page.locator('#week-list .event').filter({ hasText: 'CS1101' })
+      .locator('.dur').first().textContent()).trim();
+    eq('CS1101\'s Tuesday lab renders as a 160-minute Lab', cs1101Dur, '160 min');
+
+    await page.click('[data-day="Monday"]');
+    eq('CH1101\'s 7 parallel Monday tutorial sections all render for the selected course',
+      (await page.locator('#week-list .event').filter({ hasText: 'CH1101' }).count()), 7);
+
+    await ctx.close();
+  }
 
   await browser.close();
   server.close();

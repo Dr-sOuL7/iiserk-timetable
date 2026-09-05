@@ -18,7 +18,7 @@ repository.
 | `index.html` | App shell: course picker, Today view, Week view, settings sheet, confirm dialog. |
 | `style.css` | All styling. Mobile-first, system font stack, light/dark tokens. |
 | `app.js` | All UI logic: filtering, sorting, current/next detection, localStorage, service-worker registration. |
-| `data/timetable.js` | **The dataset.** 433 events + 122 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
+| `data/timetable.js` | **The dataset.** 482 events + 131 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
 | `data/holidays.js` | 2026 institute holidays and academic breaks (`window.HOLIDAY_DATA`, `window.BREAK_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
 | `data/midsem.js` | The Mid-Sem exam schedule — one entry per course (`window.MIDSEM_DATA`), for Today-tab awareness and the Mid-Sem editor. Generated — see below. |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
@@ -89,7 +89,7 @@ written to — it is `Object.freeze`d at start-up. Personal changes are a thin
 layer stored separately:
 
 ```
-TIMETABLE_DATA.events        (immutable, 433 published classes)
+TIMETABLE_DATA.events        (immutable, 482 published classes)
        +  overrides          (sparse per-event field patches)
        -  removed            (ids the user hid)
        =  effectiveEvents()  ->  course filter  ->  sort  ->  Today / Week / now+next
@@ -336,6 +336,16 @@ browser context offline to verify the service worker.
   silently "fix" the source.
 - **Same-slot duplicates are preserved.** Friday 09:50 `CH2104 (Tut)` is listed
   twice in two different rooms; both are kept as separate events.
+- **First-year (1000-level) courses** (CH1101, CS1101, ES1101, HU1101, HU1103,
+  LS1101, MA1101, PH1101, PH1102) use a slot the upperclass grid otherwise
+  leaves empty for lunch: **12:35**, exactly 55 minutes after 11:40 like every
+  other slot. `LS1102` (Biology Laboratory I) was mentioned as offered but has
+  no published class times, so it is not in the dataset - add it the normal
+  way (`tools/raw/timetable.txt` + `tools/build-data.js`) once its schedule is
+  known.
+- **MA3110 (Rings and Modules) was rescheduled**: from one Monday, two
+  Wednesday and one Friday class to two Monday classes (13:30, 14:25) and two
+  Tuesday classes (14:25, 15:20) - Wednesday and Friday no longer meet at all.
 - **Monday–Friday only.** The timetable itself has no Saturday/Sunday events:
   both show a weekend state with no classes, plus a pointer to the next
   upcoming class. Separately, the Today tab is aware of the institutional
@@ -350,7 +360,7 @@ browser context offline to verify the service worker.
 - No end-of-semester exam dates, one-off reschedules or instructor names —
   the source data contains none of these. Mid-Sem exam dates, times and
   venues are covered separately (see "Mid-Sem examinations" above).
-- Course names come from `Autumn_2026_Offered_Courses.csv`. All 122 timetabled
+- Course names come from `Autumn_2026_Offered_Courses.csv`. All 131 timetabled
   codes matched a name.
 - The selection is stored in `localStorage` under `iiserk.tt.courses.v1`, so it
   is per-browser and per-device, and clearing site data clears it. If storage is

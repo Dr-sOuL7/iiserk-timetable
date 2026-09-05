@@ -149,7 +149,7 @@
    * written to (it is frozen at start-up). Personal changes live in their own
    * localStorage entry as a thin layer on top:
    *
-   *     TIMETABLE_DATA.events            (immutable, 433 published classes)
+   *     TIMETABLE_DATA.events            (immutable, 482 published classes)
    *            +  overrides              (sparse per-event field patches)
    *            -  removed                (ids the user hid)
    *            =  effectiveEvents()      (what the app displays)

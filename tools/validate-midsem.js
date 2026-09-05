@@ -145,7 +145,7 @@ check('no exam has an empty venue', MS.exams.every((e) => e.venue && e.venue.tri
 // field, exam field, or "midsem" key leaked into TIMETABLE_DATA.
 check('TIMETABLE_DATA has no midsem-related field of its own',
   !('exams' in TT) && !('midsem' in TT) && !('MIDSEM_DATA' in TT));
-check('the published timetable event count is unaffected (still 433)', TT.events.length === 433);
+check('the published timetable event count is unaffected (still 482)', TT.events.length === 482);
 
 console.log(`\n${failures === 0 ? 'ALL MID-SEM DATA CHECKS PASSED' : failures + ' CHECK(S) FAILED'}`);
 process.exit(failures === 0 ? 0 : 1);

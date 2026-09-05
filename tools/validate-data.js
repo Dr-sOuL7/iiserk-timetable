@@ -96,7 +96,7 @@ check('every Lab event has a lab/computer room',
   DATA.events.filter((e) => e.type === 'Lab').every((e) => /Lab/i.test(e.room)));
 
 // 6. Times are sortable + consistent with the published slot grid.
-const SLOTS = ['08:00', '08:55', '09:50', '10:45', '11:40', '13:30', '14:25', '15:20', '16:15', '17:10'];
+const SLOTS = ['08:00', '08:55', '09:50', '10:45', '11:40', '12:35', '13:30', '14:25', '15:20', '16:15', '17:10'];
 check('every time is HH:MM 24-hour', DATA.events.every((e) => /^\d{2}:\d{2}$/.test(e.time)));
 check('minutes field agrees with time string',
   DATA.events.every((e) => {
