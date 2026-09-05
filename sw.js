@@ -11,7 +11,7 @@
  */
 'use strict';
 
-var CACHE = 'iiserk-timetable-v14';
+var CACHE = 'iiserk-timetable-v15';
 
 var ASSETS = [
   './',

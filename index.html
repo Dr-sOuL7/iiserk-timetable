@@ -70,6 +70,9 @@
       <h1>My Timetable</h1>
       <p class="sub" id="semester-label"></p>
     </div>
+    <button type="button" id="install-btn" class="icon-btn" aria-label="Install app" hidden>
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v13m0 0-4.5-4.5M12 16l4.5-4.5"/><path d="M4 17.5V19a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-1.5"/></svg>
+    </button>
     <button type="button" id="open-settings" class="icon-btn" aria-label="Settings">
       <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 9 19.4a1.7 1.7 0 0 0-1.9.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.6 9a1.7 1.7 0 0 0-.3-1.9l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.9.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.9V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
     </button>
@@ -118,6 +121,14 @@
       <button type="button" data-theme="dark">Dark</button>
     </div>
   </div>
+
+  <button type="button" id="install-row" class="sheet-btn" hidden>
+    <span>
+      <strong>Install app</strong>
+      <small id="install-row-sub"></small>
+    </span>
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="m9 6 6 6-6 6"/></svg>
+  </button>
 
   <button type="button" id="change-courses" class="sheet-btn">
     <span>
@@ -305,6 +316,33 @@
       <button type="submit" id="midsem-edit-save" class="primary-btn wide">Save changes</button>
     </div>
   </form>
+</aside>
+
+<!-- ================= Install (iOS instructions) ================= -->
+<div id="ios-install-backdrop" class="backdrop" hidden></div>
+<aside id="ios-install-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="ios-install-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="ios-install-title">Install app</h2>
+  <p class="sheet-sub">Add the timetable to your Home Screen for one-tap, full-screen
+    access - it keeps working offline once installed.</p>
+
+  <ol class="install-steps">
+    <li>
+      <span class="install-step-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0-12-3.5 3.5M12 3l3.5 3.5"/><path d="M5 12v7a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-7"/></svg>
+      </span>
+      <span>Tap the <strong>Share</strong> button in Safari's toolbar</span>
+    </li>
+    <li>
+      <span class="install-step-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="4"/><path d="M12 8v8M8 12h8"/></svg>
+      </span>
+      <span>Scroll down and tap <strong>Add to Home Screen</strong></span>
+    </li>
+  </ol>
+
+  <button type="button" id="ios-install-close" class="ghost-btn">Got it</button>
 </aside>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

@@ -65,6 +65,41 @@ function clockScript(iso) {
   })()`;
 }
 
+/**
+ * Simulate iOS Safari's one distinguishing, real signal: `navigator.standalone`
+ * is a boolean there and does not exist anywhere else. `standalone: true`
+ * simulates an already-installed iOS PWA; `false` simulates Safari, not yet
+ * added to the Home Screen.
+ */
+function iosScript(standalone) {
+  return `Object.defineProperty(navigator, 'standalone', { value: ${JSON.stringify(standalone)}, configurable: true })`;
+}
+
+/** Simulate `display-mode: standalone` matching, the signal every other
+ * installed-PWA platform (Android/desktop Chromium) actually uses. */
+function standaloneDisplayScript() {
+  return `(() => {
+    const realMatchMedia = window.matchMedia.bind(window);
+    window.matchMedia = (q) => {
+      if (q === '(display-mode: standalone)') {
+        return { matches: true, media: q, addEventListener() {}, removeEventListener() {} };
+      }
+      return realMatchMedia(q);
+    };
+  })()`;
+}
+
+/** A fake BeforeInstallPromptEvent - real ones never fire in headless
+ * Chromium, so the app's capture/replay logic is exercised with this. */
+function dispatchFakeInstallPrompt(outcome) {
+  return `(() => {
+    const e = new Event('beforeinstallprompt', { cancelable: true });
+    e.prompt = () => Promise.resolve();
+    e.userChoice = Promise.resolve({ outcome: ${JSON.stringify(outcome || 'accepted')} });
+    window.dispatchEvent(e);
+  })()`;
+}
+
 (async () => {
   const server = await startServer();
   const base = `http://127.0.0.1:${server.address().port}/`;
@@ -88,6 +123,8 @@ function clockScript(iso) {
     });
     page.on('pageerror', (e) => errors.push('pageerror: ' + e.message));
     if (opts.clock) await page.addInitScript(clockScript(opts.clock));
+    if (opts.ios !== undefined) await page.addInitScript(iosScript(opts.ios));
+    if (opts.standaloneDisplay) await page.addInitScript(standaloneDisplayScript());
     return page;
   }
 
@@ -2924,6 +2961,129 @@ function clockScript(iso) {
        ['08:55', 'MA1101', 'Tutorial', 'G02', false],
        ['08:55', 'MA1101', 'Tutorial', 'G08', false],
        ['15:20', 'MA1101', 'Theory', 'S N Bose Lecture Theatre', false]]);
+    await ctx.close();
+  }
+
+  // ============ 54. Install control: hidden with no install signal ============
+  {
+    // Plain headless Chromium fires no beforeinstallprompt on its own and
+    // navigator.standalone doesn't exist here - exactly the same shape as
+    // Firefox or any other browser with neither signal. The control must
+    // never show a dead button.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    check('the header install icon stays hidden with no install signal',
+      await page.locator('#install-btn').isHidden());
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('the Settings install row stays hidden too', await page.locator('#install-row').isHidden());
+    await ctx.close();
+  }
+
+  // ============ 55. Install control: Chromium beforeinstallprompt flow ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    check('the icon is hidden before any beforeinstallprompt fires',
+      await page.locator('#install-btn').isHidden());
+    await page.evaluate(dispatchFakeInstallPrompt('accepted'));
+    await page.waitForSelector('#install-btn:not([hidden])');
+    check('the header icon appears once the event fires', true);
+
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    check('the Settings row appears too, in sync with the header icon',
+      await page.locator('#install-row').isVisible());
+    eq('the row explains what it does',
+      (await page.textContent('#install-row-sub')).trim(),
+      'Add to your device for quick, full-screen access');
+    await page.click('#close-settings');
+    await page.waitForSelector('#settings-sheet', { state: 'hidden' });
+
+    await page.click('#install-btn');
+    await page.waitForSelector('#install-btn', { state: 'hidden', timeout: 3000 });
+    check('accepting the prompt hides the control', true);
+    await ctx.close();
+  }
+
+  {
+    // A dismissed prompt leaves the control showing - the user might still
+    // want to install later - but the spent event itself can't be replayed;
+    // this exercises the Settings-row path specifically (header icon path
+    // already covered above).
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.evaluate(dispatchFakeInstallPrompt('dismissed'));
+    await page.waitForSelector('#install-btn:not([hidden])');
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    await page.click('#install-row');
+    await page.waitForSelector('#settings-sheet', { state: 'hidden' });
+    await page.waitForTimeout(100);   // let the spent event's userChoice promise settle
+    check('a dismissed prompt leaves the header icon showing, not hidden',
+      await page.locator('#install-btn').isVisible());
+    await ctx.close();
+  }
+
+  // ============ 56. Install control: iOS Safari (manual instructions) ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { ios: false });   // Safari, not yet added
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    check('the icon shows immediately on iOS - no event to wait for',
+      await page.locator('#install-btn').isVisible());
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    eq('the Settings row explains the iOS action specifically',
+      (await page.textContent('#install-row-sub')).trim(), 'Add to your Home Screen');
+    await page.click('#close-settings');
+    await page.waitForSelector('#settings-sheet', { state: 'hidden' });
+
+    await page.click('#install-btn');
+    await page.waitForSelector('#ios-install-sheet:not([hidden])');
+    const sheetText = await page.textContent('#ios-install-sheet');
+    check('the sheet mentions the Share button and Add to Home Screen',
+      /Share/.test(sheetText) && /Add to Home Screen/.test(sheetText));
+    await page.click('#ios-install-close');
+    await page.waitForSelector('#ios-install-sheet', { state: 'hidden' });
+    await ctx.close();
+  }
+
+  // ============ 57. Install control: already installed (either platform) ============
+  {
+    // iOS: navigator.standalone === true means already added to Home Screen.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { ios: true });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+    check('already-installed iOS never shows the install icon',
+      await page.locator('#install-btn').isHidden());
+    await ctx.close();
+  }
+
+  {
+    // Android/desktop: display-mode: standalone means already installed -
+    // beforeinstallprompt firing afterwards (unrealistic, but proves the
+    // early return truly skips registering the listener) has no effect.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { standaloneDisplay: true });
+    await seed(page, ['PH3104']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+    await page.evaluate(dispatchFakeInstallPrompt('accepted')).catch(() => {});
+    await page.waitForTimeout(100);
+    check('an already-standalone display never shows the install icon, even if the event fires',
+      await page.locator('#install-btn').isHidden());
     await ctx.close();
   }
 

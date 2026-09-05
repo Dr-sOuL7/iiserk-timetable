@@ -860,6 +860,29 @@ svg {
 }
 .midsem-list { margin-bottom: var(--s3); }
 
+/* iOS install instructions - a plain numbered-by-icon list, not a new sheet
+   pattern; reuses .sheet/.backdrop/.ghost-btn exactly like every other sheet. */
+.install-steps { list-style: none; margin: 0 0 var(--s4); padding: 0; }
+.install-steps li {
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  padding: var(--s2) 0;
+}
+.install-steps li + li { border-top: 1px solid var(--border); }
+.install-step-icon {
+  flex: none;
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-text);
+}
+.install-step-icon svg { width: 18px; height: 18px; }
+.install-steps li > span:last-child { font-size: var(--fs-md); }
+
 /* Grouped rows, so related actions read as one block. */
 .sheet-group {
   background: var(--surface-2);

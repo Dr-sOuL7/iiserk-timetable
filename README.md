@@ -48,14 +48,34 @@ python3 -m http.server 8000
 Opening `index.html` directly from disk will show the app but the service worker
 (and therefore offline support) will not register.
 
-## Installing on Android
+## Installing the app
 
-1. Deploy the repository (see below) or serve it over HTTPS / `localhost`.
-2. Open the URL in Chrome on the phone.
-3. Chrome shows an **Install app** prompt; otherwise use **⋮ → Add to Home screen**.
-4. Launch it from the home screen — it opens standalone, with no browser chrome.
-5. Open it once while online so the service worker can cache the assets. After
-   that it runs with no connection at all.
+A small install control appears in the app bar (and mirrored as an "Install
+app" row in Settings) whenever there's an actual way to install — never a
+dead button. It disappears again once the app is already running installed.
+
+- **Android / desktop Chrome, Edge, Samsung Internet, Brave** (Windows,
+  macOS, Linux, ChromeOS, Android): the browser fires `beforeinstallprompt`
+  once its own installability checks pass; tapping the control replays that
+  captured event via `.prompt()`, showing the browser's own native install
+  dialog. If it doesn't appear, the browser's own UI still works as a
+  fallback (e.g. an icon in the address bar, or **⋮ → Install app** /
+  **Add to Home screen**).
+- **iOS / iPadOS Safari**: Apple has never implemented
+  `beforeinstallprompt` on any WebKit-based browser there, so there's no
+  event to wait for. The control shows unconditionally (detected via
+  `navigator.standalone`, a boolean that only exists in that one
+  environment) and tapping it opens a short in-app instruction sheet — tap
+  **Share**, then **Add to Home Screen** — since the browser gives no way to
+  trigger that programmatically.
+- **Firefox and anything else with neither signal**: the control simply
+  never appears. No non-functional button.
+- **Already installed** (standalone display-mode, on any platform): the
+  control is hidden — nothing left to offer.
+
+Once installed on any platform, it opens standalone with no browser chrome.
+Open it once while online first so the service worker can cache the assets —
+after that it runs with no connection at all.
 
 ## Deploying to GitHub Pages
 

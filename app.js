@@ -1639,6 +1639,108 @@
     });
   }
 
+  // --------------------------------------------------------------- install
+  //
+  // Both the header icon and the Settings row are one shared control: hidden
+  // by default in the markup, shown only once there is a real way to install
+  // (never a dead button on Firefox or any other browser with neither
+  // signal), and hidden again the moment the app is already running
+  // installed. Two branches, since the platforms genuinely differ:
+  //
+  //   Chromium (Android/desktop Chrome, Edge, Samsung Internet, ...) fires
+  //   `beforeinstallprompt` when its own installability criteria are met;
+  //   captured once and replayed via .prompt() on click.
+  //
+  //   iOS/iPadOS Safari never fires that event at all - Apple has never
+  //   implemented it, on any WebKit-based browser there - so there is no
+  //   signal to wait for. `navigator.standalone` (a boolean that only exists
+  //   in that one environment) is used purely to detect "this is iOS Safari,
+  //   not already added to Home Screen" and show manual instructions instead
+  //   of a prompt.
+  var deferredInstallPrompt = null;
+  var installMode = null;   // null | 'chromium' | 'ios'
+
+  function isStandaloneDisplay() {
+    return window.matchMedia('(display-mode: standalone)').matches ||
+      window.navigator.standalone === true;
+  }
+
+  /** True only in iOS/iPadOS Safari (any WebKit browser there), not yet installed. */
+  function isIOSSafariInstallable() {
+    return typeof window.navigator.standalone === 'boolean' && !window.navigator.standalone;
+  }
+
+  function updateInstallUI() {
+    var show = !!installMode;
+    $('install-btn').hidden = !show;
+    $('install-row').hidden = !show;
+    if (show) {
+      $('install-row-sub').textContent = installMode === 'ios'
+        ? 'Add to your Home Screen'
+        : 'Add to your device for quick, full-screen access';
+    }
+  }
+
+  function hideInstallUI() {
+    installMode = null;
+    deferredInstallPrompt = null;
+    updateInstallUI();
+  }
+
+  function openIosInstallSheet() {
+    $('ios-install-backdrop').hidden = false;
+    $('ios-install-sheet').hidden = false;
+  }
+
+  function closeIosInstallSheet() {
+    $('ios-install-backdrop').hidden = true;
+    $('ios-install-sheet').hidden = true;
+  }
+
+  /** Shared tap handler for both the header icon and the Settings row. */
+  function triggerInstall() {
+    if (installMode === 'ios') { openIosInstallSheet(); return; }
+    if (!deferredInstallPrompt) return;
+    var evt = deferredInstallPrompt;
+    // A captured beforeinstallprompt event can only ever be used once,
+    // accepted or not - clear it immediately so a second tap can't replay a
+    // spent prompt. If Chrome fires a fresh event later, the control simply
+    // reappears then.
+    deferredInstallPrompt = null;
+    evt.prompt();
+    evt.userChoice.then(function (choice) {
+      if (choice.outcome === 'accepted') hideInstallUI();
+      else updateInstallUI();   // still installable, just declined this time
+    });
+  }
+
+  function initInstall() {
+    if (isStandaloneDisplay()) return;   // already installed - nothing to offer
+
+    if (isIOSSafariInstallable()) {
+      installMode = 'ios';
+      updateInstallUI();
+    }
+
+    window.addEventListener('beforeinstallprompt', function (e) {
+      e.preventDefault();
+      deferredInstallPrompt = e;
+      installMode = 'chromium';
+      updateInstallUI();
+    });
+
+    window.addEventListener('appinstalled', function () {
+      hideInstallUI();
+      toast('Installed');
+    });
+
+    // Covers installing via the browser's own UI (e.g. the address-bar icon)
+    // while the app is still open in a tab.
+    window.matchMedia('(display-mode: standalone)').addEventListener('change', function (e) {
+      if (e.matches) hideInstallUI();
+    });
+  }
+
   // ------------------------------------------------------------------ wire
 
   function bind() {
@@ -1817,6 +1919,15 @@
     $('close-settings').addEventListener('click', closeSheet);
     $('sheet-backdrop').addEventListener('click', closeSheet);
 
+    // --- install (header icon and Settings row share one action)
+    $('install-btn').addEventListener('click', triggerInstall);
+    $('install-row').addEventListener('click', function () {
+      closeSheet();
+      triggerInstall();
+    });
+    $('ios-install-close').addEventListener('click', closeIosInstallSheet);
+    $('ios-install-backdrop').addEventListener('click', closeIosInstallSheet);
+
     $('change-courses').addEventListener('click', function () {
       closeSheet();
       openPicker(true);
@@ -1897,6 +2008,7 @@
       else if (!$('midsem-edit-sheet').hidden) closeMidsemEditSheet();
       else if (!$('event-sheet').hidden) closeEventSheet();
       else if (!$('midsem-sheet').hidden) closeMidsemSheet();
+      else if (!$('ios-install-sheet').hidden) closeIosInstallSheet();
       else if (!$('settings-sheet').hidden) closeSheet();
     });
 
@@ -1934,6 +2046,7 @@
 
     applyTheme();
     bind();
+    initInstall();
 
     var saved = loadSelection();
     state.weekDay = teachingDay(new Date()) || DAYS[0];
@@ -1991,7 +2104,11 @@
     KEY_COURSES: KEY_COURSES,
     KEY_THEME: KEY_THEME,
     KEY_CUSTOM: KEY_CUSTOM,
-    KEY_MIDSEM: KEY_MIDSEM
+    KEY_MIDSEM: KEY_MIDSEM,
+    isStandaloneDisplay: isStandaloneDisplay,
+    isIOSSafariInstallable: isIOSSafariInstallable,
+    installMode: function () { return installMode; },
+    hasDeferredInstallPrompt: function () { return !!deferredInstallPrompt; }
   };
 
   if (document.readyState === 'loading') {
