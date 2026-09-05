@@ -21,6 +21,13 @@
  *     name - shown verbatim in the Today tab.
  *     A break takes precedence over a single-day holiday that falls inside
  *     it (Winter Vacation contains Christmas) - see app.js breakContext().
+ *     requiresMidsemCourse (optional) - this break does not apply unless at
+ *     least one of the user's selected courses actually has a Mid-Sem exam
+ *     (data/midsem.js); Mid-Sem week is the only break that sets this - if
+ *     none of your courses are being examined, your classes simply run as
+ *     normal that week. See app.js breakOnForSelection()/
+ *     breakContextForSelection(), used only on the Today render path -
+ *     breakOn()/breakContext() themselves stay pure and selection-independent.
  *
  * Both are specific to 2026 (Winter Vacation runs into January 2027); a date
  * outside these lists is simply not a holiday/break, on purpose - see
@@ -48,7 +55,7 @@
     // always resolves to the real first teaching day, Monday 14 Sept -
     // Sunday itself already has no classes either way, so this changes
     // nothing about which classes are hidden.
-    { start: '2026-09-05', end: '2026-09-13', name: 'Mid-Sem Examinations' },
+    { start: '2026-09-05', end: '2026-09-13', name: 'Mid-Sem Examinations', requiresMidsemCourse: true },
     { start: '2026-10-17', end: '2026-10-25', name: 'Autumn Break' },
     { start: '2026-12-13', end: '2027-01-03', name: 'Winter Vacation' }
   ];

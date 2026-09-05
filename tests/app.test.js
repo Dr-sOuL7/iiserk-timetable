@@ -2816,6 +2816,117 @@ function clockScript(iso) {
     await ctx.close();
   }
 
+  // ============ 53. Mid-Sem week does not apply when no selected course is examined ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx);
+    await page.goto(base);
+    await page.waitForSelector('#screen-setup:not([hidden])');
+
+    // MA1101 (first-year) and CH2103 (2nd-year Lab) both genuinely have no
+    // Mid-Sem exam; CS2102 does. This is deliberately NOT a first-year rule -
+    // CH2103 proves an upperclass, examless course is exempt too.
+    eq('hasMidsemCourse() checks the real exam list, not the course\'s year',
+      await page.evaluate(() => [
+        window.__tt.hasMidsemCourse(new Set(['MA1101', 'CH2103'])),
+        window.__tt.hasMidsemCourse(new Set(['MA1101', 'CS2102'])),
+        window.__tt.hasMidsemCourse(new Set()),
+      ]), [false, true, false]);
+    await ctx.close();
+  }
+
+  {
+    // Wednesday 9 Sept, inside Mid-Sem week. MA1101 (no exam) really does
+    // meet that day (4 parallel 8:55 tutorials + a 15:20 lecture) - with no
+    // selected course being examined, the break must not apply, and those
+    // real classes must render exactly as on any ordinary Wednesday.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-09T10:00:00' });
+    await seed(page, ['MA1101']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    check('no break notice when no selected course has a Mid-Sem exam',
+      !/On break|Mid-Sem Examinations/.test(await page.textContent('#now-card')));
+    eq('MA1101\'s real Wednesday classes render, not a "no classes" empty state',
+      await listRows(page, '#today-list'),
+      [['08:55', 'MA1101', 'Tutorial', '110', false],
+       ['08:55', 'MA1101', 'Tutorial', 'D N Wadia Lecture Theatre', false],
+       ['08:55', 'MA1101', 'Tutorial', 'G02', false],
+       ['08:55', 'MA1101', 'Tutorial', 'G08', false],
+       ['15:20', 'MA1101', 'Theory', 'S N Bose Lecture Theatre', false]]);
+    eq('the day header counts the real classes', (await page.textContent('#today-head')).trim(),
+      'Wednesday · 5 classes');
+    await ctx.close();
+  }
+
+  {
+    // An upperclass but examless course (CH2103, 2nd-year Lab) is exempt
+    // too - proving the rule is "has an exam", not "is first-year".
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-09T10:00:00' });
+    await seed(page, ['CH2103']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    check('an examless upperclass course is exempt from the break too, not just first-years',
+      !/On break|Mid-Sem Examinations/.test(await page.textContent('#now-card')));
+    await ctx.close();
+  }
+
+  {
+    // Same date, but the selection now includes one course that IS examined
+    // (CS2102) alongside MA1101 - the break applies again, clearing both
+    // courses' Wednesday classes, exactly the pre-existing Mid-Sem-week
+    // behaviour.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-09T10:00:00' });
+    await seed(page, ['MA1101', 'CS2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('adding just one examined course brings the break notice back',
+      (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
+    eq('the break clears the list, including the examless course\'s own classes',
+      await page.locator('#today-list .event').count(), 0);
+    check('the empty state names the break',
+      /Mid-Sem Examinations/.test(await page.textContent('#today-list')));
+    await ctx.close();
+  }
+
+  {
+    // Next-class skip: a selection with no examined course must NOT be
+    // pushed past the Mid-Sem week - CH1101 meets every Monday regardless.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-04T20:00:00' });   // Friday night, before the break
+    await seed(page, ['CH1101']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    const offset = await page.evaluate(() =>
+      window.__tt.computeNextSkippingBreaksAndMidsem(new Set(['CH1101']), new Date()).nextOffset);
+    eq('the next class is the very next Monday (3 days), not skipped to 14 Sept', offset, 3);
+    eq('the rendered card agrees',
+      (await page.locator('.now-day').textContent()).trim(), 'Monday');
+    await ctx.close();
+  }
+
+  {
+    // Week view stays completely unaffected either way - same Wednesday,
+    // full class list, regardless of the break/exemption logic above.
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-09T10:00:00' });
+    await seed(page, ['MA1101']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    await page.click('.tab[data-view="week"]');
+    await page.waitForSelector('#view-week:not([hidden])');
+    eq('Week view shows the same Wednesday schedule regardless of the exemption',
+      await listRows(page, '#week-list'),
+      [['08:55', 'MA1101', 'Tutorial', '110', false],
+       ['08:55', 'MA1101', 'Tutorial', 'D N Wadia Lecture Theatre', false],
+       ['08:55', 'MA1101', 'Tutorial', 'G02', false],
+       ['08:55', 'MA1101', 'Tutorial', 'G08', false],
+       ['15:20', 'MA1101', 'Theory', 'S N Bose Lecture Theatre', false]]);
+    await ctx.close();
+  }
+
   await browser.close();
   server.close();
 

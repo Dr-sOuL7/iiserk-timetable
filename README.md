@@ -189,6 +189,21 @@ same card component, and the same rendering precedence rules.
   the auto-generated "Classes resume {date}" message always names the real
   first teaching day, Monday 14 September — Sunday itself never has classes
   either way, so this changes nothing about which classes are hidden.
+- **Mid-Sem week doesn't apply unless a selected course is actually being
+  examined.** Checked against the real exam list (`data/midsem.js`), not the
+  course's year - `hasMidsemCourse()` in app.js. If none of your selected
+  courses have a Mid-Sem exam (true for every first-year course, and for
+  roughly a fifth of upperclass courses too, e.g. lab-only courses like
+  CH2103), your real classes run as normal all week and Next Class never
+  skips past it; selecting even one examined course alongside brings the
+  break back for the whole selection. This is the one break with this
+  exception (`requiresMidsemCourse` in `data/holidays.js`) — Autumn Break and
+  Winter Vacation apply to everyone regardless of selection, as before.
+  `breakOn()`/`breakContext()` themselves stay pure and selection-independent
+  (`computeNow()`/Week view depend on that); the exemption lives in sibling
+  functions (`breakOnForSelection()`/`breakContextForSelection()`) used only
+  on the Today render path, the same pattern already used for Mid-Sem
+  suppression.
 
 **Data.** `data/holidays.js` defines two flat arrays, both entirely separate
 from `window.TIMETABLE_DATA`:

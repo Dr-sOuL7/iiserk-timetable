@@ -97,6 +97,42 @@
     return { today: today, startsTomorrow: startsTomorrow, tomorrowDate: tomorrowDate };
   }
 
+  /**
+   * True if at least one of `selected`'s courses actually has a Mid-Sem exam
+   * (data/midsem.js) - checked against the published exam list itself, since
+   * which COURSES are examined never changes via the user's date/time/venue
+   * overrides, only when/where. MIDSEM is declared later in this file but
+   * already fully populated by the time this is ever called (render time,
+   * after the whole script has run) - the same forward-reference pattern
+   * effectiveEvents() already relies on for NAME_BY_CODE.
+   */
+  function hasMidsemCourse(selected) {
+    return MIDSEM.exams.some(function (e) { return selected.has(e.course); });
+  }
+
+  /**
+   * breakOn(), but a `requiresMidsemCourse` break (Mid-Sem week) does not
+   * apply unless at least one of `selected`'s courses is actually being
+   * examined - if none of your courses have a Mid-Sem, your classes run as
+   * normal that week. Today-render-path only: breakOn() itself stays pure
+   * and selection-independent, since computeNextSkippingBreaks() and every
+   * existing break/holiday test call it with no notion of a selection at all.
+   */
+  function breakOnForSelection(date, selected) {
+    var b = breakOn(date);
+    if (b && b.requiresMidsemCourse && !hasMidsemCourse(selected)) return null;
+    return b;
+  }
+
+  /** breakContext(), but using breakOnForSelection() - see its comment. */
+  function breakContextForSelection(now, selected) {
+    var today = breakOnForSelection(now, selected);
+    var tomorrowDate = new Date(now.getTime());
+    tomorrowDate.setDate(tomorrowDate.getDate() + 1);
+    var startsTomorrow = today ? null : breakOnForSelection(tomorrowDate, selected);
+    return { today: today, startsTomorrow: startsTomorrow, tomorrowDate: tomorrowDate };
+  }
+
   var KEY_COURSES = 'iiserk.tt.courses.v1';
   var KEY_THEME = 'iiserk.tt.theme.v1';
   // Personal timetable edits/removals. Deliberately a SEPARATE key from the
@@ -733,14 +769,18 @@
 
   /**
    * Today-tab-only: the "Next" card's lookup, skipping both academic breaks
-   * and any slot suppressed by an active Mid-Sem exam - the union of
+   * (using breakOnForSelection(), so a requiresMidsemCourse break like
+   * Mid-Sem week never skips a day when none of the selected courses are
+   * being examined) and any slot suppressed by an active Mid-Sem exam - the
+   * union of
    * computeNextSkippingBreaks() and computeNowWithMidsem()'s scan, kept as
    * its own function so neither of those two (already independently used
    * and tested) has to change.
    */
   function computeNextSkippingBreaksAndMidsem(selected, now) {
     var nowMin = now.getHours() * 60 + now.getMinutes() + now.getSeconds() / 60;
-    return scanForNext(selected, now, nowMin, NEXT_SCAN_DAYS_SKIPPING_BREAKS, breakOn, suppressMidsemCandidates(selected));
+    return scanForNext(selected, now, nowMin, NEXT_SCAN_DAYS_SKIPPING_BREAKS,
+      function (d) { return breakOnForSelection(d, selected); }, suppressMidsemCandidates(selected));
   }
 
   // ------------------------------------------------------------- rendering
@@ -1051,7 +1091,11 @@
   function renderToday() {
     var now = new Date();
     var info = computeNow(state.selected, now);
-    var brk = breakContext(now);
+    // breakContextForSelection(), not the plain breakContext(): a
+    // requiresMidsemCourse break (Mid-Sem week) does not apply unless at
+    // least one selected course actually has a Mid-Sem exam - see
+    // hasMidsemCourse().
+    var brk = breakContextForSelection(now, state.selected);
     var hol = holidayContext(now);
 
     $('date-line').textContent = now.toLocaleDateString(undefined, {
@@ -1929,6 +1973,9 @@
     holidays: HOLIDAYS,
     breakOn: breakOn,
     breakContext: breakContext,
+    hasMidsemCourse: hasMidsemCourse,
+    breakOnForSelection: breakOnForSelection,
+    breakContextForSelection: breakContextForSelection,
     computeNextSkippingBreaks: computeNextSkippingBreaks,
     breaks: BREAKS,
     midsem: MIDSEM,
