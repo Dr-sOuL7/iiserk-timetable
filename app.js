@@ -1751,7 +1751,7 @@
   // - and any Android browser that swallows the scheme silently, notably
   // in-app browsers like Instagram/WhatsApp's - fall back to a UPI ID +
   // static QR block that works with no network and no app-scheme support.
-  var UPI_VPA = '6395078865@okbizaxis';
+  var UPI_VPA = 'shivamscientist2004-1@oksbi';
   var UPI_PAYEE = 'sOuL';
   var UPI_NOTE = 'Support';
 
