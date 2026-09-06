@@ -980,6 +980,33 @@ svg {
   line-height: 1.5;
 }
 
+/* Support / donate sheet */
+#donate-sheet .primary-btn { width: 100%; }
+#upi-reveal-btn { display: block; width: 100%; text-align: center; margin-top: var(--s3); }
+.upi-fallback { margin-top: var(--s3); text-align: center; }
+.upi-qr-card {
+  display: inline-block;
+  padding: var(--s3);
+  background: #fff;
+  border-radius: var(--r-md);
+  line-height: 0;
+}
+.upi-qr-card img { display: block; width: 160px; height: 160px; }
+.upi-id-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  margin-top: var(--s3);
+}
+.upi-id-row code {
+  font-size: var(--fs-sm);
+  color: var(--text-dim);
+  background: var(--surface-2);
+  padding: 6px 10px;
+  border-radius: var(--r-pill);
+}
+
 .ghost-btn {
   width: 100%;
   min-height: var(--tap);

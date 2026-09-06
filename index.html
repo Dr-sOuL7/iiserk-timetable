@@ -162,6 +162,11 @@
     </button>
   </div>
 
+  <button type="button" id="donate-row" class="sheet-btn">
+    <span><strong>Support its development</strong></span>
+    <svg viewBox="0 0 24 24" aria-hidden="true" class="chev"><path d="m9 6 6 6-6 6"/></svg>
+  </button>
+
   <p class="sheet-foot" id="sheet-foot"></p>
   <button type="button" id="close-settings" class="ghost-btn">Close</button>
 </aside>
@@ -343,6 +348,27 @@
   </ol>
 
   <button type="button" id="ios-install-close" class="ghost-btn">Got it</button>
+</aside>
+
+<!-- ================= Support / donate ================= -->
+<div id="donate-backdrop" class="backdrop" hidden></div>
+<aside id="donate-sheet" class="sheet" role="dialog" aria-modal="true"
+       aria-labelledby="donate-title" hidden>
+  <div class="sheet-grab" aria-hidden="true"></div>
+  <h2 id="donate-title">Support its development</h2>
+
+  <button type="button" id="upi-pay-btn" class="primary-btn" hidden>Pay via UPI app</button>
+  <button type="button" id="upi-reveal-btn" class="link-btn" hidden>Copy UPI ID instead</button>
+
+  <div id="upi-fallback" class="upi-fallback" hidden>
+    <span class="upi-qr-card"><img src="icons/upi-qr.svg" width="160" height="160" alt="UPI payment QR code"></span>
+    <div class="upi-id-row">
+      <code id="upi-id-text"></code>
+      <button type="button" id="upi-copy-btn" class="link-btn">Copy</button>
+    </div>
+  </div>
+
+  <button type="button" id="donate-close" class="ghost-btn">Close</button>
 </aside>
 
 <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>

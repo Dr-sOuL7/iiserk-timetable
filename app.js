@@ -1741,6 +1741,77 @@
     });
   }
 
+  // --------------------------------------------------------------- support
+  //
+  // UPI has no cross-platform web API - the only reliable way to hand off to
+  // a payment app is the `upi://pay` URI scheme, and only Android resolves
+  // it to an app chooser. iOS/iPadOS have no OS-registered handler for it at
+  // all (Apple has never wired one up), and neither does any desktop OS, so
+  // attempting the deep link there would just be a dead tap. Those platforms
+  // - and any Android browser that swallows the scheme silently, notably
+  // in-app browsers like Instagram/WhatsApp's - fall back to a UPI ID +
+  // static QR block that works with no network and no app-scheme support.
+  var UPI_VPA = '6395078865@okbizaxis';
+  var UPI_PAYEE = 'sOuL';
+  var UPI_NOTE = 'Support';
+
+  function upiUri() {
+    return 'upi://pay?pa=' + encodeURIComponent(UPI_VPA) +
+      '&pn=' + encodeURIComponent(UPI_PAYEE) +
+      '&cu=INR&tn=' + encodeURIComponent(UPI_NOTE);
+  }
+
+  function isAndroid() {
+    return /Android/i.test(navigator.userAgent);
+  }
+
+  function showUpiFallback() {
+    $('upi-fallback').hidden = false;
+  }
+
+  function copyUpiId() {
+    var id = UPI_VPA;
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(id).then(function () {
+        toast('UPI ID copied');
+      }).catch(function () {
+        toast('Could not copy - select and copy the ID manually');
+      });
+    } else {
+      toast('Could not copy - select and copy the ID manually');
+    }
+  }
+
+  function payViaUpiApp() {
+    // If nothing has taken focus away from the page shortly after the
+    // attempt, no UPI app handled the link - surface the fallback instead
+    // of leaving a dead tap with no feedback.
+    setTimeout(function () {
+      if (!document.hidden) showUpiFallback();
+    }, 1500);
+    window.location.href = upiUri();
+  }
+
+  function openDonateSheet() {
+    $('donate-backdrop').hidden = false;
+    $('donate-sheet').hidden = false;
+  }
+
+  function closeDonateSheet() {
+    $('donate-backdrop').hidden = true;
+    $('donate-sheet').hidden = true;
+  }
+
+  function initDonate() {
+    $('upi-id-text').textContent = UPI_VPA;
+    if (isAndroid()) {
+      $('upi-pay-btn').hidden = false;
+      $('upi-reveal-btn').hidden = false;
+    } else {
+      showUpiFallback();
+    }
+  }
+
   // ------------------------------------------------------------------ wire
 
   function bind() {
@@ -1928,6 +1999,20 @@
     $('ios-install-close').addEventListener('click', closeIosInstallSheet);
     $('ios-install-backdrop').addEventListener('click', closeIosInstallSheet);
 
+    // --- support / donate (Settings row shares one action with its own sheet)
+    $('donate-row').addEventListener('click', function () {
+      closeSheet();
+      openDonateSheet();
+    });
+    $('donate-close').addEventListener('click', closeDonateSheet);
+    $('donate-backdrop').addEventListener('click', closeDonateSheet);
+    $('upi-pay-btn').addEventListener('click', payViaUpiApp);
+    $('upi-reveal-btn').addEventListener('click', function () {
+      $('upi-reveal-btn').hidden = true;
+      showUpiFallback();
+    });
+    $('upi-copy-btn').addEventListener('click', copyUpiId);
+
     $('change-courses').addEventListener('click', function () {
       closeSheet();
       openPicker(true);
@@ -2009,6 +2094,7 @@
       else if (!$('event-sheet').hidden) closeEventSheet();
       else if (!$('midsem-sheet').hidden) closeMidsemSheet();
       else if (!$('ios-install-sheet').hidden) closeIosInstallSheet();
+      else if (!$('donate-sheet').hidden) closeDonateSheet();
       else if (!$('settings-sheet').hidden) closeSheet();
     });
 
@@ -2047,6 +2133,7 @@
     applyTheme();
     bind();
     initInstall();
+    initDonate();
 
     var saved = loadSelection();
     state.weekDay = teachingDay(new Date()) || DAYS[0];
