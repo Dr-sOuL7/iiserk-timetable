@@ -1743,31 +1743,16 @@
 
   // --------------------------------------------------------------- support
   //
-  // UPI has no cross-platform web API - the only reliable way to hand off to
-  // a payment app is the `upi://pay` URI scheme, and only Android resolves
-  // it to an app chooser. iOS/iPadOS have no OS-registered handler for it at
-  // all (Apple has never wired one up), and neither does any desktop OS, so
-  // attempting the deep link there would just be a dead tap. Those platforms
-  // - and any Android browser that swallows the scheme silently, notably
-  // in-app browsers like Instagram/WhatsApp's - fall back to a UPI ID +
-  // static QR block that works with no network and no app-scheme support.
+  // A `upi://pay` deep link fired from a web page - the only cross-app
+  // handoff a browser can offer - is, at the protocol level, indistinguishable
+  // from how a lot of UPI scams operate (an unfamiliar page hands the victim
+  // a pre-filled pay link). GPay and Paytm's fraud checks now routinely
+  // block exactly that pattern outright, regardless of the receiving VPA
+  // (confirmed on both business and personal handles), so no deep link is
+  // attempted at all. A live QR scan or a manually copied ID isn't treated
+  // as suspicious the same way, so that is the only path offered, on every
+  // platform - simpler, and the one that actually completes a payment.
   var UPI_VPA = 'shivamscientist2004-1@oksbi';
-  var UPI_PAYEE = 'sOuL';
-  var UPI_NOTE = 'Support';
-
-  function upiUri() {
-    return 'upi://pay?pa=' + encodeURIComponent(UPI_VPA) +
-      '&pn=' + encodeURIComponent(UPI_PAYEE) +
-      '&cu=INR&tn=' + encodeURIComponent(UPI_NOTE);
-  }
-
-  function isAndroid() {
-    return /Android/i.test(navigator.userAgent);
-  }
-
-  function showUpiFallback() {
-    $('upi-fallback').hidden = false;
-  }
 
   function copyUpiId() {
     var id = UPI_VPA;
@@ -1782,16 +1767,6 @@
     }
   }
 
-  function payViaUpiApp() {
-    // If nothing has taken focus away from the page shortly after the
-    // attempt, no UPI app handled the link - surface the fallback instead
-    // of leaving a dead tap with no feedback.
-    setTimeout(function () {
-      if (!document.hidden) showUpiFallback();
-    }, 1500);
-    window.location.href = upiUri();
-  }
-
   function openDonateSheet() {
     $('donate-backdrop').hidden = false;
     $('donate-sheet').hidden = false;
@@ -1804,12 +1779,6 @@
 
   function initDonate() {
     $('upi-id-text').textContent = UPI_VPA;
-    if (isAndroid()) {
-      $('upi-pay-btn').hidden = false;
-      $('upi-reveal-btn').hidden = false;
-    } else {
-      showUpiFallback();
-    }
   }
 
   // ------------------------------------------------------------------ wire
@@ -2006,11 +1975,6 @@
     });
     $('donate-close').addEventListener('click', closeDonateSheet);
     $('donate-backdrop').addEventListener('click', closeDonateSheet);
-    $('upi-pay-btn').addEventListener('click', payViaUpiApp);
-    $('upi-reveal-btn').addEventListener('click', function () {
-      $('upi-reveal-btn').hidden = true;
-      showUpiFallback();
-    });
     $('upi-copy-btn').addEventListener('click', copyUpiId);
 
     $('change-courses').addEventListener('click', function () {

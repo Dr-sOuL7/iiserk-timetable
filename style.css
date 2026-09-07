@@ -981,9 +981,7 @@ svg {
 }
 
 /* Support / donate sheet */
-#donate-sheet .primary-btn { width: 100%; }
-#upi-reveal-btn { display: block; width: 100%; text-align: center; margin-top: var(--s3); }
-.upi-fallback { margin-top: var(--s3); text-align: center; }
+.upi-fallback { text-align: center; }
 .upi-qr-card {
   display: inline-block;
   padding: var(--s3);
