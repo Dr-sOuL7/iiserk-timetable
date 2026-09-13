@@ -1022,6 +1022,7 @@
    */
   function midsemCardHtml(ctx, now) {
     if (!state.selected.size || !ctx.all.length) return '';
+    if (!ctx.current.length && !ctx.next) return '';
 
     if (ctx.current.length === 1) {
       var e = ctx.current[0];
@@ -1067,12 +1068,7 @@
         '</div>';
     }
 
-    return '' +
-      '<div class="midsem-card">' +
-        '<div class="now-label">Mid-Sem</div>' +
-        '<div class="now-empty">No more Mid-Sem exams for your courses.</div>' +
-        midsemLinkHtml() +
-      '</div>';
+    return '';
   }
 
   function sameEvent(list, e) {

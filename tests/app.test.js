@@ -2703,6 +2703,8 @@ function dispatchFakeInstallPrompt(outcome) {
     eq('on the actual last day, the resume phrase says "tomorrow"',
       (await page.locator('.now-card .now-empty').textContent()).trim(),
       'No regular classes. Classes resume tomorrow.');
+    eq('the Mid-Sem card no longer shows once all exams for the course are over',
+      (await page.textContent('#midsem-card')).trim(), '');
     await ctx.close();
   }
 
