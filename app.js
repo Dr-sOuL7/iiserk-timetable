@@ -144,6 +144,11 @@
   // KEY_CUSTOM too, since Mid-Sem exams are not timetable events and must
   // never be resettable/removable together with a class edit.
   var KEY_MIDSEM = 'iiserk.tt.midsem.v1';
+  // Whether the Today-tab Mid-Sem card is shown at all - independent of
+  // KEY_MIDSEM (exam edits) and never touched by it. Absent/anything but
+  // '0' means shown, so a fresh install behaves exactly as before this
+  // preference existed.
+  var KEY_MIDSEM_VISIBLE = 'iiserk.tt.midsem-visible.v1';
 
   // ---------------------------------------------------------------- storage
 
@@ -576,7 +581,8 @@
     weekDay: null,
     dept: 'ALL',
     query: '',
-    theme: store.get(KEY_THEME) || 'auto'
+    theme: store.get(KEY_THEME) || 'auto',
+    midsemVisible: store.get(KEY_MIDSEM_VISIBLE) !== '0'
   };
 
   var $ = function (id) { return document.getElementById(id); };
@@ -1012,13 +1018,21 @@
       'View full Mid-Sem schedule</button>';
   }
 
+  var CLOSE_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6 18 18M18 6 6 18"/></svg>';
+
+  /** The small dismiss control in the Mid-Sem card's corner - see data-action="midsem-hide". */
+  function midsemHideBtnHtml() {
+    return '<button type="button" class="midsem-hide" data-action="midsem-hide" ' +
+      'aria-label="Hide the Mid-Sem card from Today">' + CLOSE_SVG + '</button>';
+  }
+
   /**
    * The Today-tab Mid-Sem card: current exam(s) first, else the next
-   * upcoming one, else (courses selected have exams but none remain) a
-   * closing note - and always, when there is any Mid-Sem data for the
-   * selected courses at all, a way into the full schedule/editor. Returns ''
-   * when no selected course has a Mid-Sem exam, so the card simply does not
-   * appear rather than showing an empty shell.
+   * upcoming one. Returns '' when no selected course has a current or
+   * upcoming Mid-Sem exam (so the card simply does not appear rather than
+   * showing an empty shell), and also while the user has hidden it via the
+   * card's own dismiss control or the Settings toggle (state.midsemVisible) -
+   * gated by the caller, not here, so this stays a pure function of ctx/now.
    */
   function midsemCardHtml(ctx, now) {
     if (!state.selected.size || !ctx.all.length) return '';
@@ -1028,7 +1042,10 @@
       var e = ctx.current[0];
       return '' +
         '<div class="midsem-card live">' +
-          '<div class="now-label"><span class="dot"></span>Mid-Sem exam now</div>' +
+          '<div class="midsem-head">' +
+            '<div class="now-label"><span class="dot"></span>Mid-Sem exam now</div>' +
+            midsemHideBtnHtml() +
+          '</div>' +
           '<div class="now-course"><span class="now-code">' + esc(e.course) + '</span></div>' +
           (e.name ? '<div class="now-name">' + esc(e.name) + '</div>' : '') +
           '<div class="now-where">' + PIN_SVG + '<span>' + esc(e.venue) + '</span>' +
@@ -1043,8 +1060,11 @@
       // treatment in nowCardHtml().
       return '' +
         '<div class="midsem-card live">' +
-          '<div class="now-label"><span class="dot"></span>Mid-Sem exams now' +
-            '<span class="now-count">' + ctx.current.length + ' at once</span></div>' +
+          '<div class="midsem-head">' +
+            '<div class="now-label"><span class="dot"></span>Mid-Sem exams now' +
+              '<span class="now-count">' + ctx.current.length + ' at once</span></div>' +
+            midsemHideBtnHtml() +
+          '</div>' +
           ctx.current.map(function (e) {
             return '<div class="now-row">' +
               '<span class="now-row-code">' + esc(e.course) + '</span>' +
@@ -1059,7 +1079,10 @@
       var n = ctx.next;
       return '' +
         '<div class="midsem-card">' +
-          '<div class="now-label">Next Mid-Sem exam</div>' +
+          '<div class="midsem-head">' +
+            '<div class="now-label">Next Mid-Sem exam</div>' +
+            midsemHideBtnHtml() +
+          '</div>' +
           '<div class="now-course"><span class="now-code">' + esc(n.course) + '</span></div>' +
           (n.name ? '<div class="now-name">' + esc(n.name) + '</div>' : '') +
           '<div class="now-where">' + PIN_SVG + '<span>' + esc(n.venue) + '</span></div>' +
@@ -1138,8 +1161,12 @@
     // Independent of the now-card precedence above and of course selection
     // gating below (midsemCardHtml() no-ops itself in both of those cases) -
     // a Mid-Sem exam is its own section, never folded into the holiday/break
-    // states.
-    $('midsem-card').innerHTML = midsemCardHtml(midsemContext(state.selected, now), now);
+    // states. state.midsemVisible is a separate, user-controlled override
+    // (the card's own dismiss control, or Settings) checked here rather than
+    // inside midsemCardHtml(), which stays a pure function of ctx/now.
+    $('midsem-card').innerHTML = state.midsemVisible
+      ? midsemCardHtml(midsemContext(state.selected, now), now)
+      : '';
 
     var list = $('today-list');
     if (!state.selected.size) {
@@ -1343,6 +1370,7 @@
     $('sheet-backdrop').hidden = false;
     $('settings-sheet').hidden = false;
     syncThemeButtons();
+    syncMidsemVisibleButtons();
     $('sheet-foot').textContent =
       DATA.events.length + ' events · ' + DATA.courses.length + ' courses · ' +
       DATA.semester + '. Works offline.';
@@ -1635,6 +1663,23 @@
     });
   }
 
+  // ------------------------------------------------------- Mid-Sem card visibility
+
+  /** Dismisses the Mid-Sem card from Today via its own corner control. */
+  function hideMidsemCard() {
+    state.midsemVisible = false;
+    store.set(KEY_MIDSEM_VISIBLE, '0');
+    render();
+    syncMidsemVisibleButtons();
+    toast('Mid-Sem hidden - show it again anytime in Settings');
+  }
+
+  function syncMidsemVisibleButtons() {
+    Array.prototype.forEach.call($('midsem-visible-seg').children, function (b) {
+      b.setAttribute('aria-pressed', String((b.dataset.midsemVisible === 'show') === state.midsemVisible));
+    });
+  }
+
   // --------------------------------------------------------------- install
   //
   // Both the header icon and the Settings row are one shared control: hidden
@@ -1859,10 +1904,12 @@
     });
 
     // Empty-state CTA, the per-event "..." control and the Mid-Sem card's
-    // "view full schedule" link (all three live in the Today/Week views).
+    // "view full schedule" link and dismiss control (all live in the
+    // Today/Week views).
     $('main').addEventListener('click', function (e) {
       if (e.target.closest('[data-action="pick"]')) { openPicker(true); return; }
       if (e.target.closest('[data-action="midsem-full"]')) { openMidsemSheet(); return; }
+      if (e.target.closest('[data-action="midsem-hide"]')) { hideMidsemCard(); return; }
       var menu = e.target.closest('[data-evt]');
       if (menu) openEventSheet(menu.dataset.evt);
     });
@@ -1985,6 +2032,15 @@
       store.set(KEY_THEME, state.theme);
       applyTheme();
       syncThemeButtons();
+    });
+
+    $('midsem-visible-seg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-midsem-visible]');
+      if (!b) return;
+      state.midsemVisible = b.dataset.midsemVisible === 'show';
+      store.set(KEY_MIDSEM_VISIBLE, state.midsemVisible ? '1' : '0');
+      syncMidsemVisibleButtons();
+      render();
     });
 
     $('reset-btn').addEventListener('click', function () {
@@ -2152,6 +2208,7 @@
     KEY_THEME: KEY_THEME,
     KEY_CUSTOM: KEY_CUSTOM,
     KEY_MIDSEM: KEY_MIDSEM,
+    KEY_MIDSEM_VISIBLE: KEY_MIDSEM_VISIBLE,
     isStandaloneDisplay: isStandaloneDisplay,
     isIOSSafariInstallable: isIOSSafariInstallable,
     installMode: function () { return installMode; },

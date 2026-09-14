@@ -623,6 +623,28 @@ svg {
 }
 .midsem-link { display: block; margin-top: var(--s2); }
 
+/* Label + dismiss control, top of the card. A 44px target sitting in the
+   card's own padding (see .evt-menu), so it never enlarges the card. */
+.midsem-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+.midsem-hide {
+  flex: none;
+  width: var(--tap);
+  height: var(--tap);
+  margin: -10px -8px 0 0;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  color: var(--text-faint);
+  transition: background-color .12s ease;
+}
+.midsem-hide:active { background: var(--surface-2); }
+.midsem-hide svg { width: 15px; height: 15px; stroke-width: 2.4; }
+
 /* ---------------- Event list ---------------- */
 
 .event-list { display: flex; flex-direction: column; gap: 6px; }

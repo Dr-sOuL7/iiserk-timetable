@@ -2378,6 +2378,73 @@ function dispatchFakeInstallPrompt(outcome) {
     await ctx.close();
   }
 
+  // ============ 44a. Mid-Sem card: dismissed via its own corner control, stays hidden, Settings can bring it back ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-06T08:00:00' });   // Sunday, day before CH2102's exam
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+
+    eq('the card is shown by default', await page.locator('#midsem-card .midsem-card').count(), 1);
+    eq('KEY_MIDSEM_VISIBLE is untouched until a choice is made',
+      await page.evaluate(() => localStorage.getItem(window.__tt.KEY_MIDSEM_VISIBLE)), null);
+
+    await page.click('#midsem-card [data-action="midsem-hide"]');
+    eq('the card disappears immediately', (await page.textContent('#midsem-card')).trim(), '');
+    await page.waitForSelector('#toast:not([hidden])');
+    eq('the toast points at Settings for bringing it back',
+      (await page.textContent('#toast')).trim(), 'Mid-Sem hidden - show it again anytime in Settings');
+    eq('the choice is persisted',
+      await page.evaluate(() => localStorage.getItem(window.__tt.KEY_MIDSEM_VISIBLE)), '0');
+
+    // Settings reflects the hidden state.
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    eq('the "Hide" segment is pressed', await page.getAttribute(
+      '#midsem-visible-seg [data-midsem-visible="hide"]', 'aria-pressed'), 'true');
+    eq('the "Show" segment is not', await page.getAttribute(
+      '#midsem-visible-seg [data-midsem-visible="show"]', 'aria-pressed'), 'false');
+
+    // Survives a reload while hidden.
+    await page.click('#close-settings');
+    await page.reload();
+    await page.waitForSelector('#screen-app:not([hidden])');
+    eq('the card is still hidden after a reload', (await page.textContent('#midsem-card')).trim(), '');
+
+    // Settings can bring it back.
+    await page.click('#open-settings');
+    await page.waitForSelector('#settings-sheet:not([hidden])');
+    await page.click('#midsem-visible-seg [data-midsem-visible="show"]');
+    await page.click('#close-settings');
+    eq('the card reappears once switched back on',
+      await page.locator('#midsem-card .midsem-card').count(), 1);
+    eq('the preference is persisted as shown',
+      await page.evaluate(() => localStorage.getItem(window.__tt.KEY_MIDSEM_VISIBLE)), '1');
+    await ctx.close();
+  }
+
+  // ============ 44b. Mid-Sem visibility preference works fully offline ============
+  {
+    const ctx = await browser.newContext(ctxOpts);
+    const page = await newPage(ctx, { clock: '2026-09-06T08:00:00' });
+    await seed(page, ['CH2102']);
+    await page.waitForSelector('#screen-app:not([hidden])');
+    // Warm the service worker cache before going offline.
+    await page.waitForTimeout(300);
+
+    await ctx.setOffline(true);
+    await page.click('#midsem-card [data-action="midsem-hide"]');
+    eq('hiding the card works with no network', (await page.textContent('#midsem-card')).trim(), '');
+
+    const cold = await newPage(ctx, { clock: '2026-09-06T08:00:00' });
+    await cold.goto(base);
+    await cold.waitForSelector('#screen-app:not([hidden])');
+    eq('a fresh offline cold start keeps the preference',
+      (await cold.textContent('#midsem-card')).trim(), '');
+    await ctx.setOffline(false);
+    await ctx.close();
+  }
+
   // ============ 45. Regular classes are suppressed during an active Mid-Sem exam ============
   {
     // CH2102's published exam (7 Sept) now falls inside the "Mid-Sem
