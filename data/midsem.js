@@ -11,9 +11,10 @@
   'use strict';
 
   var MIDSEM = {
-    /** 10:00-11:30 and 15:00-16:30, exactly as published. Informational only
-     * (each exam already carries its own resolved time/duration); kept here
-     * so the shift definition has one home if it's ever needed again. */
+    /** 10:00-11:30, 15:00-16:30 and 10:30-12:00 (Level 1/first-year exams),
+     * exactly as published. Informational only (each exam already carries
+     * its own resolved time/duration); kept here so the shift definition
+     * has one home if it's ever needed again. */
     shifts: {
           "1": {
                 "time": "10:00",
@@ -21,6 +22,10 @@
           },
           "2": {
                 "time": "15:00",
+                "duration": 90
+          },
+          "3": {
+                "time": "10:30",
                 "duration": 90
           }
     },
@@ -131,7 +136,14 @@
       {"id":"midsem-ls4105","course":"LS4105","date":"2026-09-12","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G06"},
       {"id":"midsem-ma3103","course":"MA3103","date":"2026-09-12","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"112"},
       {"id":"midsem-ma5122","course":"MA5122","date":"2026-09-12","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G06"},
-      {"id":"midsem-ph5114","course":"PH5114","date":"2026-09-12","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G06"}
+      {"id":"midsem-ph5114","course":"PH5114","date":"2026-09-12","time":"15:00","minutes":900,"duration":90,"shift":2,"venue":"G06"},
+      {"id":"midsem-ma1101","course":"MA1101","date":"2026-10-05","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-hu1101","course":"HU1101","date":"2026-10-06","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-hu1103","course":"HU1103","date":"2026-10-06","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-ls1101","course":"LS1101","date":"2026-10-07","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-ph1101","course":"PH1101","date":"2026-10-08","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-ch1101","course":"CH1101","date":"2026-10-09","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"},
+      {"id":"midsem-es1101","course":"ES1101","date":"2026-10-10","time":"10:30","minutes":630,"duration":90,"shift":3,"venue":"R N Tagore Auditorium"}
     ]
   };
 

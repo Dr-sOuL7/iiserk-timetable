@@ -2259,8 +2259,8 @@ function dispatchFakeInstallPrompt(outcome) {
     await page.goto(base);
     await page.waitForSelector('#screen-setup:not([hidden])');
 
-    eq('the Mid-Sem dataset loaded all 94 documented exams',
-      await page.evaluate(() => window.__tt.midsem.exams.length), 94);
+    eq('the Mid-Sem dataset loaded all 101 documented exams',
+      await page.evaluate(() => window.__tt.midsem.exams.length), 101);
     eq('the Mid-Sem dataset is a separate global, not merged into TIMETABLE_DATA',
       await page.evaluate(() => 'exams' in window.TIMETABLE_DATA || 'midsem' in window.TIMETABLE_DATA), false);
     eq('the published timetable event count is unaffected by the Mid-Sem feature',
@@ -2929,23 +2929,32 @@ function dispatchFakeInstallPrompt(outcome) {
     await page.goto(base);
     await page.waitForSelector('#screen-setup:not([hidden])');
 
-    // MA1101 (first-year) and CH2103 (2nd-year Lab) both genuinely have no
-    // Mid-Sem exam; CS2102 does. This is deliberately NOT a first-year rule -
-    // CH2103 proves an upperclass, examless course is exempt too.
-    eq('hasMidsemCourse() checks the real exam list, not the course\'s year',
-      await page.evaluate(() => [
-        window.__tt.hasMidsemCourse(new Set(['MA1101', 'CH2103'])),
-        window.__tt.hasMidsemCourse(new Set(['MA1101', 'CS2102'])),
-        window.__tt.hasMidsemCourse(new Set()),
-      ]), [false, true, false]);
+    // CH2103 (2nd-year Lab) genuinely has no Mid-Sem exam at all; CS2102
+    // does, within the Sept break's own range. MA1101 (first-year) DOES
+    // have a Mid-Sem exam - but in October, its own separate Level 1 exam
+    // period, entirely outside the Sept break's range - proving the rule is
+    // "examined within THIS break's window", not "is first-year" and not
+    // merely "has a Mid-Sem exam at all" (the last, unranged call shows
+    // MA1101's October exam still counts with no range given).
+    eq('hasMidsemCourse() checks exams within the given range, not the course\'s year',
+      await page.evaluate(() => {
+        var b = window.__tt.breaks.filter(function (x) { return x.name === 'Mid-Sem Examinations'; })[0];
+        return [
+          window.__tt.hasMidsemCourse(new Set(['MA1101', 'CH2103']), b.start, b.end),
+          window.__tt.hasMidsemCourse(new Set(['MA1101', 'CS2102']), b.start, b.end),
+          window.__tt.hasMidsemCourse(new Set()),
+          window.__tt.hasMidsemCourse(new Set(['MA1101'])),
+        ];
+      }), [false, true, false, true]);
     await ctx.close();
   }
 
   {
-    // Wednesday 9 Sept, inside Mid-Sem week. MA1101 (no exam) really does
-    // meet that day (4 parallel 8:55 tutorials + a 15:20 lecture) - with no
-    // selected course being examined, the break must not apply, and those
-    // real classes must render exactly as on any ordinary Wednesday.
+    // Wednesday 9 Sept, inside the (upperclass) Mid-Sem week. MA1101's own
+    // Mid-Sem exam is in October, outside this break's range, so it really
+    // does meet that day (4 parallel 8:55 tutorials + a 15:20 lecture) - with
+    // no selected course examined THIS week, the break must not apply, and
+    // those real classes must render exactly as on any ordinary Wednesday.
     const ctx = await browser.newContext(ctxOpts);
     const page = await newPage(ctx, { clock: '2026-09-09T10:00:00' });
     await seed(page, ['MA1101']);
@@ -2998,8 +3007,10 @@ function dispatchFakeInstallPrompt(outcome) {
   }
 
   {
-    // Next-class skip: a selection with no examined course must NOT be
-    // pushed past the Mid-Sem week - CH1101 meets every Monday regardless.
+    // Next-class skip: a selection with no course examined THIS break week
+    // must NOT be pushed past it - CH1101's own Mid-Sem exam is in October
+    // (its separate Level 1 period), so it still meets every Monday
+    // regardless of the Sept break.
     const ctx = await browser.newContext(ctxOpts);
     const page = await newPage(ctx, { clock: '2026-09-04T20:00:00' });   // Friday night, before the break
     await seed(page, ['CH1101']);

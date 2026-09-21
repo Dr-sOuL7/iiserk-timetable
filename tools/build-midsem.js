@@ -26,7 +26,8 @@ const OUT = path.join(ROOT, 'data', 'midsem.js');
 // there is exactly one place course names come from.
 const SHIFTS = {
   1: { time: '10:00', duration: 90 },   // 10:00 AM - 11:30 AM
-  2: { time: '15:00', duration: 90 }    // 3:00 PM - 4:30 PM
+  2: { time: '15:00', duration: 90 },   // 3:00 PM - 4:30 PM
+  3: { time: '10:30', duration: 90 }    // 10:30 AM - 12 NOON (Level 1/first-year exams)
 };
 
 // Minimal RFC-4180-ish CSV reader (handles the quoted, comma-containing roll
@@ -171,10 +172,11 @@ function main() {
   'use strict';
 
   var MIDSEM = {
-    /** 10:00-11:30 and 15:00-16:30, exactly as published. Informational only
-     * (each exam already carries its own resolved time/duration); kept here
-     * so the shift definition has one home if it's ever needed again. */
-    shifts: ${JSON.stringify({ 1: SHIFTS[1], 2: SHIFTS[2] }, null, 6).replace(/\n/g, '\n    ')},
+    /** 10:00-11:30, 15:00-16:30 and 10:30-12:00 (Level 1/first-year exams),
+     * exactly as published. Informational only (each exam already carries
+     * its own resolved time/duration); kept here so the shift definition
+     * has one home if it's ever needed again. */
+    shifts: ${JSON.stringify({ 1: SHIFTS[1], 2: SHIFTS[2], 3: SHIFTS[3] }, null, 6).replace(/\n/g, '\n    ')},
     /**
      * Every Mid-Sem exam, one per course.
      *   id       - stable, content-derived ("midsem-<course>")

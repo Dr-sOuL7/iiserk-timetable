@@ -72,7 +72,9 @@ check('shift 1 is 10:00, 90 minutes (10:00-11:30)',
   MS.exams.filter((e) => e.shift === 1).every((e) => e.time === '10:00' && e.duration === 90));
 check('shift 2 is 15:00, 90 minutes (3:00-4:30 PM)',
   MS.exams.filter((e) => e.shift === 2).every((e) => e.time === '15:00' && e.duration === 90));
-check('only shifts 1 and 2 exist', MS.exams.every((e) => e.shift === 1 || e.shift === 2));
+check('shift 3 is 10:30, 90 minutes (10:30 AM-12 NOON, Level 1/first-year exams)',
+  MS.exams.filter((e) => e.shift === 3).every((e) => e.time === '10:30' && e.duration === 90));
+check('only shifts 1, 2 and 3 exist', MS.exams.every((e) => e.shift === 1 || e.shift === 2 || e.shift === 3));
 
 // 5. Dates: valid ISO strings, and match the source DD/MM/YYYY -> YYYY-MM-DD.
 check('every date is a valid YYYY-MM-DD string',

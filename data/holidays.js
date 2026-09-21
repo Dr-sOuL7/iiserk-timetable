@@ -22,10 +22,13 @@
  *     A break takes precedence over a single-day holiday that falls inside
  *     it (Winter Vacation contains Christmas) - see app.js breakContext().
  *     requiresMidsemCourse (optional) - this break does not apply unless at
- *     least one of the user's selected courses actually has a Mid-Sem exam
- *     (data/midsem.js); Mid-Sem week is the only break that sets this - if
- *     none of your courses are being examined, your classes simply run as
- *     normal that week. See app.js breakOnForSelection()/
+ *     least one of the user's selected courses has a Mid-Sem exam
+ *     (data/midsem.js) WITHIN THIS BREAK'S OWN start/end range; Mid-Sem week
+ *     is the only break that sets this - if none of your courses are being
+ *     examined that week, your classes simply run as normal, even if one of
+ *     them has an unrelated Mid-Sem exam some other week (e.g. the Level 1/
+ *     first-year October exams are entirely separate from this September
+ *     break). See app.js breakOnForSelection()/
  *     breakContextForSelection(), used only on the Today render path -
  *     breakOn()/breakContext() themselves stay pure and selection-independent.
  *

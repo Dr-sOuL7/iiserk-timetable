@@ -98,29 +98,41 @@
   }
 
   /**
-   * True if at least one of `selected`'s courses actually has a Mid-Sem exam
-   * (data/midsem.js) - checked against the published exam list itself, since
-   * which COURSES are examined never changes via the user's date/time/venue
-   * overrides, only when/where. MIDSEM is declared later in this file but
-   * already fully populated by the time this is ever called (render time,
-   * after the whole script has run) - the same forward-reference pattern
+   * True if at least one of `selected`'s courses has a Mid-Sem exam falling
+   * within [start, end] ("YYYY-MM-DD", inclusive), or anywhere at all when
+   * no range is given - checked against the published exam list itself,
+   * since which COURSES are examined (and when) never changes via the
+   * user's date/time/venue overrides, only where. Ranged so a break tied to
+   * ONE exam period (see breakOnForSelection) never wrongly fires for a
+   * student whose only exam is a later, unrelated period's - e.g. the Level
+   * 1/first-year October Mid-Sem is entirely separate from the institute-
+   * wide September break. MIDSEM is declared later in this file but already
+   * fully populated by the time this is ever called (render time, after the
+   * whole script has run) - the same forward-reference pattern
    * effectiveEvents() already relies on for NAME_BY_CODE.
    */
-  function hasMidsemCourse(selected) {
-    return MIDSEM.exams.some(function (e) { return selected.has(e.course); });
+  function hasMidsemCourse(selected, start, end) {
+    return MIDSEM.exams.some(function (e) {
+      if (!selected.has(e.course)) return false;
+      if (start && e.date < start) return false;
+      if (end && e.date > end) return false;
+      return true;
+    });
   }
 
   /**
    * breakOn(), but a `requiresMidsemCourse` break (Mid-Sem week) does not
    * apply unless at least one of `selected`'s courses is actually being
-   * examined - if none of your courses have a Mid-Sem, your classes run as
-   * normal that week. Today-render-path only: breakOn() itself stays pure
+   * examined WITHIN THAT BREAK'S OWN DATE RANGE - if none of your courses
+   * have a Mid-Sem that week, your classes run as normal, even if one of
+   * them has an unrelated Mid-Sem exam some other week (see
+   * hasMidsemCourse()). Today-render-path only: breakOn() itself stays pure
    * and selection-independent, since computeNextSkippingBreaks() and every
    * existing break/holiday test call it with no notion of a selection at all.
    */
   function breakOnForSelection(date, selected) {
     var b = breakOn(date);
-    if (b && b.requiresMidsemCourse && !hasMidsemCourse(selected)) return null;
+    if (b && b.requiresMidsemCourse && !hasMidsemCourse(selected, b.start, b.end)) return null;
     return b;
   }
 
