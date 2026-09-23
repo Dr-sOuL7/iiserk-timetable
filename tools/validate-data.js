@@ -36,7 +36,7 @@ for (const e of DATA.events) {
 check('no exact duplicate events', dupes.length === 0, dupes.join(' ; ') || 'none');
 
 // 2b. Same-slot, same-course events with different rooms must be preserved.
-const friCh2104 = DATA.events.filter((e) => e.day === 'Friday' && e.course === 'CH2104' && e.time === '09:50');
+const friCh2104 = DATA.events.filter((e) => e.day === 'Friday' && e.course === 'CH2104' && e.time === '17:10');
 check('same-course same-slot events with different rooms preserved',
   friCh2104.length === 2 && new Set(friCh2104.map((e) => e.room)).size === 2,
   friCh2104.map((e) => e.room).join(' + '));

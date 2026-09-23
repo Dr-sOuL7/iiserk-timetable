@@ -491,7 +491,7 @@ function dispatchFakeInstallPrompt(outcome) {
     eq('reset clears the saved selection',
       await page.evaluate(() => localStorage.getItem('iiserk.tt.courses.v1')), null);
     eq('reset keeps the embedded timetable data intact',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
     eq('picker after reset starts empty',
       (await page.textContent('#sel-count')).trim(), '0 courses selected');
 
@@ -564,7 +564,7 @@ function dispatchFakeInstallPrompt(outcome) {
     await page.waitForSelector('#screen-app:not([hidden])', { timeout: 15000 });
     check('app loads with the network switched off', await page.isVisible('#screen-app'));
     eq('offline app still has the full dataset',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
     eq('offline app still shows the right classes',
       await page.locator('#today-list .event .code').allTextContents(), ['PH3104', 'PH3104']);
     check('offline app still detects the current class',
@@ -613,9 +613,9 @@ function dispatchFakeInstallPrompt(outcome) {
       };
     });
 
-    eq('dataset loaded in the browser', audit.total, 482);
+    eq('dataset loaded in the browser', audit.total, 485);
     eq('course catalog loaded in the browser', audit.courses, 131);
-    eq('per-day totals match the source', audit.perDay, [103, 94, 82, 104, 99]);
+    eq('per-day totals match the source', audit.perDay, [103, 97, 83, 104, 98]);
     check('every day list is chronologically sorted', audit.sortedOk);
     check('filtering never leaks an unselected course', audit.filteredAllInSet);
     eq('filtering returns every event of the chosen courses',
@@ -1151,7 +1151,7 @@ function dispatchFakeInstallPrompt(outcome) {
     check('offline next-class detection uses the edited time',
       /12:00/.test(offlineCard), offlineCard.slice(0, 140));
     eq('offline app still holds the full published dataset',
-      await cold.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+      await cold.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
     eq('offline published data is still unmodified',
       await publishedEvent(cold, MON_PH3102), ['Monday', '09:50', 'PH3102', 'Theory', 'G02']);
 
@@ -1186,11 +1186,11 @@ function dispatchFakeInstallPrompt(outcome) {
         publishedIdsUnique: new Set(D.events.map((e) => e.id)).size,
       };
     });
-    eq('the published event count is unchanged at 482', audit.published, 482);
+    eq('the published event count is unchanged at 485', audit.published, 485);
     eq('editing introduces no duplicate events', audit.uniqueIds, audit.effective);
-    eq('published ids remain unique', audit.publishedIdsUnique, 482);
+    eq('published ids remain unique', audit.publishedIdsUnique, 485);
     check('an edit that collides with another class does not merge them',
-      audit.effective === 482, `${audit.effective} effective events`);
+      audit.effective === 485, `${audit.effective} effective events`);
 
     eq('two classes may now share a slot without being merged',
       (await listRows(page, '#today-list')).map((r) => r[0] + ' ' + r[1] + ' ' + r[3]),
@@ -1792,8 +1792,8 @@ function dispatchFakeInstallPrompt(outcome) {
     eq('Today\'s holiday empty state is unaffected by the customisation',
       await page.locator('#today-list .event').count(), 0);
 
-    eq('the published timetable is still exactly 482 events',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+    eq('the published timetable is still exactly 485 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
     check('the published timetable has no "holidays" field of its own',
       await page.evaluate(() => !('holidays' in window.TIMETABLE_DATA)));
     eq('the course selection is untouched by holiday rendering',
@@ -2156,8 +2156,8 @@ function dispatchFakeInstallPrompt(outcome) {
     await page.click('.tab[data-view="today"]');
     eq('Today still shows the break state after a Week-view customisation',
       (await page.locator('.now-card .now-label').textContent()).trim(), 'On break');
-    eq('the published timetable is still exactly 482 events',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+    eq('the published timetable is still exactly 485 events',
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
     eq('the course selection is untouched by break rendering',
       await page.evaluate(() => JSON.parse(localStorage.getItem('iiserk.tt.courses.v1')).sort()),
       ['MA3101', 'PH3102', 'PH3104']);
@@ -2264,7 +2264,7 @@ function dispatchFakeInstallPrompt(outcome) {
     eq('the Mid-Sem dataset is a separate global, not merged into TIMETABLE_DATA',
       await page.evaluate(() => 'exams' in window.TIMETABLE_DATA || 'midsem' in window.TIMETABLE_DATA), false);
     eq('the published timetable event count is unaffected by the Mid-Sem feature',
-      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 482);
+      await page.evaluate(() => window.TIMETABLE_DATA.events.length), 485);
 
     eq('a multi-venue course merges every allocated room with its roll-number range, in source order',
       await page.evaluate(() => window.__tt.midsem.exams.find((e) => e.course === 'CS2102')),
@@ -2814,7 +2814,7 @@ function dispatchFakeInstallPrompt(outcome) {
        ['16:15', 'CH2102', 'Theory', 'S N Bose Lecture Theatre', false]]);
     eq('day pill counts are the normal, unfiltered counts',
       (await page.locator('#day-chips .chip').allTextContents()).join(','),
-      'Mon6,Tue4,Wed0,Thu6,Fri2');
+      'Mon6,Tue5,Wed0,Thu5,Fri2');
     check('no mention of the break anywhere in Week view',
       !/Mid-Sem Examinations|break/i.test(await page.textContent('#view-week')));
     await ctx.close();

@@ -18,7 +18,7 @@ repository.
 | `index.html` | App shell: course picker, Today view, Week view, settings sheet, confirm dialog. |
 | `style.css` | All styling. Mobile-first, system font stack, light/dark tokens. |
 | `app.js` | All UI logic: filtering, sorting, current/next detection, localStorage, service-worker registration. |
-| `data/timetable.js` | **The dataset.** 482 events + 131 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
+| `data/timetable.js` | **The dataset.** 485 events + 131 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
 | `data/holidays.js` | 2026 institute holidays and academic breaks (`window.HOLIDAY_DATA`, `window.BREAK_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
 | `data/midsem.js` | The Mid-Sem exam schedule — one entry per course (`window.MIDSEM_DATA`), for Today-tab awareness and the Mid-Sem editor. Generated — see below. |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
@@ -109,7 +109,7 @@ written to — it is `Object.freeze`d at start-up. Personal changes are a thin
 layer stored separately:
 
 ```
-TIMETABLE_DATA.events        (immutable, 482 published classes)
+TIMETABLE_DATA.events        (immutable, 485 published classes)
        +  overrides          (sparse per-event field patches)
        -  removed            (ids the user hid)
        =  effectiveEvents()  ->  course filter  ->  sort  ->  Today / Week / now+next
