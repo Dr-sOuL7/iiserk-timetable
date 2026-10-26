@@ -1,0 +1,35 @@
+# Cloudflare Worker for the IISER-K Timetable class reminders.
+# Deployment steps: worker/README.md
+
+name = "iiserk-reminders"
+main = "src/index.js"
+compatibility_date = "2025-01-01"
+
+# Every minute: deliver due reminders. Daily at 03:17 UTC: housekeeping.
+# (Workers Free allows 5 cron triggers per account; this uses 2.)
+[triggers]
+crons = ["* * * * *", "17 3 * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "iiserk-reminders"
+database_id = "REPLACE_WITH_DATABASE_ID"      # printed by: npx wrangler d1 create iiserk-reminders
+
+[observability]
+enabled = true
+
+[vars]
+# Browsers whose pages may call this API (exact origins, comma separated, no path).
+# For GitHub Pages at https://<user>.github.io/<repo>/ the origin is https://<user>.github.io
+ALLOWED_ORIGINS = "https://dr-soul7.github.io"
+# Contact the push services can reach if your Worker misbehaves (RFC 8292). Apple requires a real one.
+VAPID_SUBJECT = "mailto:you@example.com"
+# Public half of the VAPID key pair - printed by: node tools/generate-vapid-keys.js
+VAPID_PUBLIC_KEY = "REPLACE_WITH_VAPID_PUBLIC_KEY"
+# VAPID_PRIVATE_KEY is a SECRET. Never put it here:  npx wrangler secret put VAPID_PRIVATE_KEY
+
+# Tuning (all optional; the defaults suit the free plan).
+MAX_PUSHES_PER_TICK = "40"                # outgoing pushes per minute-run; Workers Free allows 50 subrequests
+LOOKAHEAD_MINUTES = "10"                  # a burst may start up to this many minutes early, never late
+MAX_SUBSCRIPTIONS = "5000"                # devices; refuses new sign-ups beyond this
+MAX_NEW_SUBSCRIPTIONS_PER_HOUR = "120"    # sign-up flood guard

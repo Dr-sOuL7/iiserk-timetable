@@ -21,6 +21,9 @@ repository.
 | `data/timetable.js` | **The dataset.** 485 events + 131 courses as plain JS (`window.TIMETABLE_DATA`). Generated — see below. |
 | `data/holidays.js` | 2026 institute holidays and academic breaks (`window.HOLIDAY_DATA`, `window.BREAK_DATA`), for Today-tab awareness only. Hand-maintained, entirely separate from the timetable — see below. |
 | `data/midsem.js` | The Mid-Sem exam schedule — one entry per course (`window.MIDSEM_DATA`), for Today-tab awareness and the Mid-Sem editor. Generated — see below. |
+| `reminders.js` | Class-reminder engine (`window.IISERReminders`): settings, schedule builder, device-side push encryption, relay sync. No UI. |
+| `data/reminders-config.js` | One line of configuration: `apiBase`, the URL of the reminder relay. Empty = reminders hidden. |
+| `worker/` | The optional free Cloudflare Worker that delivers Web Push while the app is closed. Has its own [README](worker/README.md). |
 | `manifest.json` | Web App Manifest (name, display mode, colours, icons). |
 | `sw.js` | Service worker: precaches the shell, serves it offline. |
 | `icons/` | PNG app icons (192, 512, maskable 512, apple-touch). |
@@ -32,6 +35,10 @@ repository.
 | `tools/validate-midsem.js` | Data checks of the generated Mid-Sem dataset against its raw sources. |
 | `tools/make-icons.py` | Regenerates `icons/` (pure Python, no image libraries). |
 | `tests/app.test.js` | End-to-end browser checks (Playwright + headless Chromium). |
+| `tests/reminders.test.js` | Unit tests for the reminder engine (rules, encryption vs RFC 8291 vector, controller with fakes). |
+| `tests/worker.test.mjs` | Tests for the relay Worker (API, auth, planner, cron sender) on an in-memory SQLite stand-in for D1. |
+| `tests/reminders.e2e.test.js` | Browser tests of the real app against the real Worker code (permissions, offline, service-worker notifications). |
+| `tools/generate-vapid-keys.js` | Prints a VAPID key pair for the relay. |
 
 Everything under `tools/` and `tests/` is for development only. The deployed
 site is just the files in the repository root plus `data/` and `icons/`.
@@ -144,6 +151,8 @@ detection and the countdown always use this real, possibly-edited length.
 | `iiserk.tt.courses.v1` | Selected course codes. |
 | `iiserk.tt.custom.v1` | `{version, overrides: {id: patch}, removed: [id]}`. |
 | `iiserk.tt.midsem.v1` | `{version, overrides: {id: patch}}` — Mid-Sem date/time/venue edits, see below. |
+| `iiserk.tt.reminders.v1` | `{version, enabled, lead, classes: {id: {off} or {lead}}}` — reminder settings, see below. |
+| `iiserk.tt.push.v1` | Reminder-relay device state (id, token, last upload). Contains no timetable data. |
 | `iiserk.tt.theme.v1` | Auto / light / dark. |
 
 They are deliberately separate: **Reset courses** clears only the selection, so
@@ -152,6 +161,43 @@ them. Malformed, unknown or wrongly-typed stored values are discarded on load,
 so a corrupted entry degrades to "no customisations" instead of breaking the
 app. With no keys set, the app behaves exactly as it did before the feature
 existed.
+
+## Class reminders (optional, needs the relay)
+
+Settings → **Class reminders** turns on notifications before each class, and they
+can arrive while the app is closed. GitHub Pages is static and cannot do that
+alone, so the work is split:
+
+* **On GitHub Pages (this repo):** the UI, the rules and the schedule. The device
+  works out every reminder for the next 21 days from the *current* app state —
+  selected courses, your edits, moved/removed classes, holidays, academic breaks,
+  Mid-Sem exams — encrypts them, and uploads them.
+* **On the relay (`worker/`, Cloudflare Workers + D1, free plan):** stores the
+  opaque encrypted reminders and, once a minute, hands the due ones to the
+  browser's push service. It never sees class names. Setup: `worker/README.md`.
+
+**Rules.** Reminders are on by default (**5 minutes** before), but the browser's
+notification permission is asked **only when you tap On / "Turn on reminders"**,
+never at startup. Settings has On/Off and the default lead (5, 10, 15, 30 or a
+custom 1–180). In a class's *Edit* dialog, **Reminder** is *Default* (inherits
+the global time, follows later changes), *Off* (just this class) or a custom time
+(unaffected by changes to the default). Classes with their own setting show a small "N min reminder" / "No reminder"
+pill. Settings are stored in `iiserk.tt.reminders.v1` keyed by the class's
+published id, so they apply identically to existing and edited classes, and are
+dropped when a class is no longer in the timetable.
+
+**If permission is denied** the app says so and offers no further prompts; the
+setting stays On and resumes once permission is allowed in browser settings.
+Without a configured relay, unsupported browsers or iPhones not installed to the
+Home Screen, Settings explains what is missing instead of failing silently.
+
+**Offline.** The timetable and the reminder settings work offline. Changes made
+offline are queued and uploaded automatically when the connection returns
+(until then the server still has the old schedule, so a reminder for a class you
+just removed could still fire). Delivery itself needs the device to be online,
+and is best-effort: see the platform notes (Android battery managers, iOS needs
+a Home Screen install, desktop browsers must be running, 21-day horizon) in
+`worker/README.md`. It is **not** a guaranteed alarm clock.
 
 ## Holiday and academic-break awareness (Today tab only)
 
@@ -345,6 +391,9 @@ No UI code needs to change.
 node tools/validate-data.js                       # timetable data checks
 node tools/validate-midsem.js                     # Mid-Sem data checks
 NODE_PATH=$(npm root -g) node tests/app.test.js   # browser checks
+node tests/reminders.test.js                      # reminder engine unit tests
+node tests/worker.test.mjs                        # relay Worker tests (Node 22+, node:sqlite)
+NODE_PATH=$(npm root -g) node tests/reminders.e2e.test.js   # reminders in the real app + real Worker code
 ```
 
 The browser suite serves the real site over HTTP and drives headless Chromium at

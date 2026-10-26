@@ -1,0 +1,6 @@
+{
+  "name": "iiserk-reminders-worker",
+  "private": true,
+  "type": "module",
+  "description": "Web Push relay for the IISER-K Timetable class reminders (Cloudflare Worker + D1)."
+}

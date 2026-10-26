@@ -130,6 +130,37 @@
     </div>
   </div>
 
+  <p class="sheet-label" id="remind-heading">Class reminders</p>
+  <div class="setting-row">
+    <span id="remind-enabled-label">Remind me before class</span>
+    <div class="segmented" id="remind-enabled-seg" role="group" aria-labelledby="remind-enabled-label">
+      <button type="button" data-remind-enabled="on">On</button>
+      <button type="button" data-remind-enabled="off">Off</button>
+    </div>
+  </div>
+  <div class="setting-row" id="remind-lead-row">
+    <label for="remind-lead">Default time</label>
+    <div class="remind-lead-controls">
+      <span class="remind-custom" id="remind-lead-custom-wrap" hidden>
+        <input type="number" id="remind-lead-custom" min="1" max="180" step="1" inputmode="numeric"
+               aria-label="Custom reminder time in minutes before class">
+        <span aria-hidden="true">min</span>
+      </span>
+      <select id="remind-lead" class="mini-select">
+        <option value="5">5 min before</option>
+        <option value="10">10 min before</option>
+        <option value="15">15 min before</option>
+        <option value="30">30 min before</option>
+        <option value="custom">Custom&hellip;</option>
+      </select>
+    </div>
+  </div>
+  <div class="remind-status" id="remind-status" hidden>
+    <p id="remind-status-text" role="status" aria-live="polite"></p>
+    <button type="button" class="primary-btn remind-cta" id="remind-cta" hidden></button>
+    <button type="button" class="link-btn" id="remind-test" hidden>Send a test notification</button>
+  </div>
+
   <button type="button" id="install-row" class="sheet-btn" hidden>
     <span>
       <strong>Install app</strong>
@@ -275,6 +306,24 @@
       <input type="text" id="f-room" autocomplete="off">
     </label>
 
+    <div class="field" id="f-remind-field">
+      <span id="f-remind-label">Reminder</span>
+      <div class="field-row remind-field-row">
+        <select id="f-remind" aria-labelledby="f-remind-label" aria-describedby="f-remind-hint">
+          <option value="default">Default</option>
+          <option value="off">Off for this class</option>
+          <option value="5">5 min before</option>
+          <option value="10">10 min before</option>
+          <option value="15">15 min before</option>
+          <option value="30">30 min before</option>
+          <option value="custom">Custom&hellip;</option>
+        </select>
+        <input type="number" id="f-remind-custom" min="1" max="180" step="1" inputmode="numeric" hidden
+               aria-label="Custom reminder time in minutes before class" aria-describedby="f-remind-hint">
+      </div>
+      <small class="field-hint" id="f-remind-hint"></small>
+    </div>
+
     <p class="field-error" id="edit-error" hidden></p>
 
     <div class="modal-actions">
@@ -382,6 +431,8 @@
 <script src="data/timetable.js"></script>
 <script src="data/holidays.js"></script>
 <script src="data/midsem.js"></script>
+<script src="data/reminders-config.js"></script>
+<script src="reminders.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

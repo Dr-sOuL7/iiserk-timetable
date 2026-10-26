@@ -192,7 +192,9 @@
   }
 
   function saveSelection(codes) {
-    return store.set(KEY_COURSES, JSON.stringify(codes));
+    var ok = store.set(KEY_COURSES, JSON.stringify(codes));
+    remindersChanged();
+    return ok;
   }
 
   // ------------------------------------------------- user customisation layer
@@ -273,13 +275,16 @@
 
   function saveCustom() {
     invalidateEffective();
+    var ok = true;
     if (!Object.keys(custom.overrides).length && !custom.removed.length) {
       store.remove(KEY_CUSTOM);
-      return true;
+    } else {
+      ok = store.set(KEY_CUSTOM, JSON.stringify({
+        version: 1, overrides: custom.overrides, removed: custom.removed
+      }));
     }
-    return store.set(KEY_CUSTOM, JSON.stringify({
-      version: 1, overrides: custom.overrides, removed: custom.removed
-    }));
+    remindersChanged();
+    return ok;
   }
 
   function customCount() {
@@ -457,11 +462,14 @@
 
   function saveMidsemCustom() {
     invalidateMidsemEffective();
+    var ok = true;
     if (!Object.keys(midsemCustom.overrides).length) {
       store.remove(KEY_MIDSEM);
-      return true;
+    } else {
+      ok = store.set(KEY_MIDSEM, JSON.stringify({ version: 1, overrides: midsemCustom.overrides }));
     }
-    return store.set(KEY_MIDSEM, JSON.stringify({ version: 1, overrides: midsemCustom.overrides }));
+    remindersChanged();
+    return ok;
   }
 
   function midsemCustomCount() {
@@ -598,6 +606,29 @@
   };
 
   var $ = function (id) { return document.getElementById(id); };
+
+  // ------------------------------------------------------------ reminders
+  //
+  // reminders.js owns the settings, the schedule and the push plumbing; this file
+  // only feeds it the timetable rules the Today tab already applies (so a reminder
+  // never disagrees with what the app shows) and renders its controls.
+  var reminders = null;
+
+  function remindersChanged() { if (reminders) reminders.markChanged(); }
+
+  function reminderDeps() {
+    return {
+      teachingDay: teachingDay,
+      localDateKey: localDateKey,
+      eventsFor: function (dayName) { return state.selected ? eventsFor(dayName, state.selected) : []; },
+      // The same two checks renderToday() uses to replace a day's class list with "no classes".
+      isOffDay: function (date) {
+        return !!holidayOn(date) || !!breakOnForSelection(date, state.selected || new Set());
+      },
+      midsemIntervalsOn: function (dateKey) { return state.selected ? midsemIntervalsOn(state.selected, dateKey) : []; },
+      overlaps: overlapsAnyInterval
+    };
+  }
 
   // ------------------------------------------------------------- formatting
 
@@ -808,6 +839,15 @@
   var DOTS_SVG = '<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="5" r="1.1"/>' +
     '<circle cx="12" cy="12" r="1.1"/><circle cx="12" cy="19" r="1.1"/></svg>';
 
+  /** Only classes that differ from the default get a pill, so the default stays invisible. */
+  function reminderFlagHtml(e) {
+    if (!reminders || !reminders.isEnabled()) return '';
+    var cs = reminders.getClassSetting(e.id);
+    if (cs.mode === 'custom') return '<span class="remind-flag">' + cs.lead + ' min reminder</span>';
+    if (cs.mode === 'off') return '<span class="remind-flag is-off">No reminder</span>';
+    return '';
+  }
+
   function eventHtml(e, status) {
     return '' +
       '<article class="event' + (status ? ' is-' + status : '') + '">' +
@@ -821,6 +861,7 @@
             '<span class="badge ' + e.type + '">' + esc(e.type) + '</span>' +
             (status === 'now' ? '<span class="badge live">Now</span>' : '') +
             (e.modified ? '<span class="edited-flag">Edited</span>' : '') +
+            reminderFlagHtml(e) +
           '</div>' +
           (e.name ? '<div class="cname">' + esc(e.name) + '</div>' : '') +
           '<div class="room">' + PIN_SVG + '<span>' + esc(e.room) + '</span></div>' +
@@ -1383,6 +1424,10 @@
     $('settings-sheet').hidden = false;
     syncThemeButtons();
     syncMidsemVisibleButtons();
+    syncReminderControls();
+    // Opening Settings is the first sign of interest: fetch the service's public key now so a
+    // tap on "Allow notifications" can subscribe at once, still inside the tap's user gesture.
+    if (reminders) reminders.warm();
     $('sheet-foot').textContent =
       DATA.events.length + ' events · ' + DATA.courses.length + ' courses · ' +
       DATA.semester + '. Works offline.';
@@ -1478,6 +1523,7 @@
     $('f-type').value = e.type;
     $('f-duration').value = e.duration;
     $('f-room').value = e.room;
+    setupEditReminder(id);
 
     var orig = originalById(id);
     $('edit-sub').textContent = orig
@@ -1501,6 +1547,7 @@
     $('f-course').setAttribute('aria-invalid', String(/course code/i.test(msg)));
     $('f-time').setAttribute('aria-invalid', String(/time/i.test(msg)));
     $('f-duration').setAttribute('aria-invalid', String(/duration/i.test(msg)));
+    $('f-remind-custom').setAttribute('aria-invalid', String(/reminder/i.test(msg)));
   }
 
   function submitEdit() {
@@ -1527,12 +1574,25 @@
       return showEditError('Enter a duration between ' + MIN_DURATION_MINUTES +
         ' and ' + MAX_DURATION_MINUTES + ' minutes.');
     }
+    var remind = reminders ? readEditReminder() : 'default';
+    if (remind === null) {
+      return showEditError('Enter a reminder time between ' + window.IISERReminders.MIN_LEAD +
+        ' and ' + window.IISERReminders.MAX_LEAD + ' minutes.');
+    }
 
     var id = editingId;
+    var beforeOverride = JSON.stringify(custom.overrides[id] || null);
+    var beforeRemind = reminders ? JSON.stringify(reminders.getClassSetting(id)) : null;
     if (!saveOverride(id, values)) {
       toast('Could not save - storage is blocked in this browser');
     } else {
-      toast(custom.overrides[id] ? 'Changes saved' : 'Class restored to the original');
+      if (reminders) reminders.setClassSetting(id, remind);
+      var remindChanged = reminders && JSON.stringify(reminders.getClassSetting(id)) !== beforeRemind;
+      if (remindChanged && JSON.stringify(custom.overrides[id] || null) === beforeOverride) {
+        toast('Reminder saved');
+      } else {
+        toast(custom.overrides[id] ? 'Changes saved' : 'Class restored to the original');
+      }
     }
     closeEditSheet();
     render();
@@ -1690,6 +1750,136 @@
     Array.prototype.forEach.call($('midsem-visible-seg').children, function (b) {
       b.setAttribute('aria-pressed', String((b.dataset.midsemVisible === 'show') === state.midsemVisible));
     });
+  }
+
+  // ------------------------------------------------------ reminder settings
+
+  var REMIND_PRESETS = [5, 10, 15, 30];
+  var leadCustomOpen = false;   // "Custom..." picked in Settings, even if its value equals a preset
+
+  /** What the Settings sheet says about delivery, and the one action (if any) it offers. */
+  function reminderStatusView(st, lead) {
+    switch (st.code) {
+      case 'unconfigured':
+        return { text: 'Reminder delivery is not set up for this app yet.', tone: 'warn' };
+      case 'unsupported':
+        return { text: 'This browser cannot show notifications while the app is closed.', tone: 'warn' };
+      case 'ios-install':
+        return {
+          text: 'On iPhone and iPad, add this app to your Home Screen first, then turn on notifications here.',
+          cta: { label: 'Show me how', action: 'ios' }
+        };
+      case 'needs-permission':
+        return {
+          text: 'Allow notifications to get reminders even when the app is closed.',
+          cta: { label: 'Allow notifications', action: 'allow' }
+        };
+      case 'denied':
+        return {
+          text: 'Notifications are blocked for this site. Allow them in your browser or device settings, then reopen the app.',
+          tone: 'warn'
+        };
+      case 'working':
+        return { text: 'Setting up reminders\u2026' };
+      case 'error':
+        return { text: (st.message || 'Something went wrong') + '. Retrying automatically.', tone: 'warn' };
+      case 'active':
+        return {
+          text: 'Reminders are on. You will be notified ' + lead + ' min before each class, even when the app is closed.' +
+            (st.pending ? ' Recent changes will sync once you are online.' : ''),
+          test: true
+        };
+      default:
+        return { text: '' };
+    }
+  }
+
+  function syncReminderControls() {
+    var section = document.querySelectorAll('#remind-enabled-seg, #remind-lead-row, #remind-status');
+    if (!reminders) {
+      Array.prototype.forEach.call(section, function (el) { el.hidden = true; });
+      $('remind-enabled-seg').parentNode.hidden = true;
+      $('remind-heading').hidden = true;
+      return;
+    }
+    var prefs = reminders.getPrefs();
+    var st = reminders.status();
+
+    Array.prototype.forEach.call($('remind-enabled-seg').children, function (b) {
+      b.setAttribute('aria-pressed', String((b.dataset.remindEnabled === 'on') === prefs.enabled));
+    });
+
+    $('remind-lead-row').hidden = !prefs.enabled;
+    var isPreset = REMIND_PRESETS.indexOf(prefs.lead) >= 0;
+    var showCustom = leadCustomOpen || !isPreset;
+    $('remind-lead').value = showCustom ? 'custom' : String(prefs.lead);
+    $('remind-lead-custom-wrap').hidden = !showCustom;
+    if (document.activeElement !== $('remind-lead-custom')) $('remind-lead-custom').value = prefs.lead;
+
+    var view = reminderStatusView(st, prefs.lead);
+    $('remind-status').hidden = !view.text;
+    $('remind-status-text').textContent = view.text;
+    $('remind-status').dataset.tone = view.tone || '';
+    var cta = $('remind-cta');
+    cta.hidden = !view.cta;
+    if (view.cta) { cta.textContent = view.cta.label; cta.dataset.action = view.cta.action; }
+    $('remind-test').hidden = !view.test;
+  }
+
+  // --- per-class reminder field in the edit dialog
+
+  function remindHint() {
+    var prefs = reminders.getPrefs();
+    var v = $('f-remind').value;
+    var text, custom = true;
+    if (v === 'default') {
+      text = 'Uses your default: ' + prefs.lead + ' min before class.';
+      custom = false;
+    } else if (v === 'off') {
+      text = 'No reminder for this class.';
+    } else {
+      var n = v === 'custom' ? parseInt($('f-remind-custom').value, 10) : parseInt(v, 10);
+      text = (window.IISERReminders.isLead(n) ? 'Custom: ' + n + ' min before class' : 'Custom time for this class') +
+        '. Your default is ' + prefs.lead + ' min.';
+    }
+    if (!prefs.enabled) text += ' Reminders are off in Settings.';
+    var el = $('f-remind-hint');
+    el.textContent = text;
+    el.classList.toggle('is-custom', custom);
+  }
+
+  function setupEditReminder(id) {
+    var field = $('f-remind-field');
+    field.hidden = !reminders;
+    if (!reminders) return;
+    var prefs = reminders.getPrefs();
+    $('f-remind').options[0].textContent = 'Default \u00b7 ' + prefs.lead + ' min before';
+    var cs = reminders.getClassSetting(id);
+    var custom = $('f-remind-custom');
+    custom.hidden = true;
+    custom.value = '';
+    if (cs.mode === 'off') {
+      $('f-remind').value = 'off';
+    } else if (cs.mode === 'custom') {
+      if (REMIND_PRESETS.indexOf(cs.lead) >= 0) {
+        $('f-remind').value = String(cs.lead);
+      } else {
+        $('f-remind').value = 'custom';
+        custom.hidden = false;
+        custom.value = cs.lead;
+      }
+    } else {
+      $('f-remind').value = 'default';
+    }
+    remindHint();
+  }
+
+  /** The dialog's reminder choice as 'default' | 'off' | minutes, or null when the custom time is invalid. */
+  function readEditReminder() {
+    var v = $('f-remind').value;
+    if (v === 'default' || v === 'off') return v;
+    var n = parseInt(v === 'custom' ? $('f-remind-custom').value : v, 10);
+    return window.IISERReminders.isLead(n) ? n : null;
   }
 
   // --------------------------------------------------------------- install
@@ -1992,6 +2182,19 @@
       if (std) $('f-duration').value = std;
     });
 
+    // --- reminder field inside the edit dialog
+    $('f-remind').addEventListener('change', function () {
+      var custom = $('f-remind-custom');
+      var isCustom = $('f-remind').value === 'custom';
+      custom.hidden = !isCustom;
+      if (isCustom) {
+        if (!custom.value && reminders) custom.value = reminders.getPrefs().lead;
+        custom.focus();
+      }
+      remindHint();
+    });
+    $('f-remind-custom').addEventListener('input', remindHint);
+
     // --- Mid-Sem full schedule
     $('midsem-close').addEventListener('click', closeMidsemSheet);
     $('midsem-backdrop').addEventListener('click', closeMidsemSheet);
@@ -2055,6 +2258,56 @@
       render();
     });
 
+    // --- class reminders (Settings)
+    $('remind-enabled-seg').addEventListener('click', function (e) {
+      var b = e.target.closest('[data-remind-enabled]');
+      if (!b || !reminders) return;
+      if (b.dataset.remindEnabled === 'on') {
+        // Tapping On is the explicit opt-in: the only place the permission prompt can appear.
+        reminders.enable().then(syncReminderControls);
+      } else {
+        leadCustomOpen = false;
+        reminders.disable().then(syncReminderControls);
+      }
+    });
+
+    $('remind-lead').addEventListener('change', function () {
+      if (!reminders) return;
+      var v = $('remind-lead').value;
+      if (v === 'custom') {
+        leadCustomOpen = true;
+        syncReminderControls();
+        $('remind-lead-custom').focus();
+        return;
+      }
+      leadCustomOpen = false;
+      reminders.setDefaultLead(parseInt(v, 10));
+      syncReminderControls();
+    });
+
+    $('remind-lead-custom').addEventListener('change', function () {
+      if (!reminders) return;
+      if (!reminders.setDefaultLead(parseInt($('remind-lead-custom').value, 10))) {
+        toast('Enter a time between ' + window.IISERReminders.MIN_LEAD + ' and ' + window.IISERReminders.MAX_LEAD + ' minutes');
+      }
+      syncReminderControls();
+    });
+
+    $('remind-cta').addEventListener('click', function () {
+      var action = $('remind-cta').dataset.action;
+      if (action === 'ios') { closeSheet(); openIosInstallSheet(); return; }
+      if (action === 'allow' && reminders) reminders.enable().then(syncReminderControls);
+    });
+
+    $('remind-test').addEventListener('click', function () {
+      if (!reminders) return;
+      reminders.sendTest().then(function (r) {
+        if (r.ok) toast('Test sent - it should arrive in a few seconds');
+        else if (r.reason === 'rate-limited') toast('Please wait a moment before sending another test');
+        else toast('Could not send the test notification');
+      }).catch(function () { toast('Could not send the test notification'); });
+    });
+
     $('reset-btn').addEventListener('click', function () {
       closeSheet();
       openConfirm({
@@ -2068,6 +2321,7 @@
           // key and deliberately survive, so re-picking a course brings them
           // back rather than silently losing the user's work.
           store.remove(KEY_COURSES);
+          remindersChanged();
           state.selected = null;
           state.view = 'today';
           openPicker(false);
@@ -2158,6 +2412,24 @@
     midsemCustom = loadMidsemCustom();
     invalidateMidsemEffective();
 
+    if (window.IISERReminders) {
+      reminders = window.IISERReminders.createController({
+        store: store,
+        config: window.REMINDER_CONFIG || {},
+        deps: reminderDeps(),
+        env: { iosInstallNeeded: isIOSSafariInstallable },
+        onChange: function () {
+          syncReminderControls();
+          // Per-class pills depend on the global switch, so keep the lists in step with it.
+          if (!$('screen-app').hidden && state.selected) render();
+        }
+      });
+      // Settings for classes that no longer exist in the published timetable are dead weight.
+      var publishedIds = {};
+      DATA.events.forEach(function (e) { publishedIds[e.id] = true; });
+      reminders.pruneClasses(publishedIds);
+    }
+
     applyTheme();
     bind();
     initInstall();
@@ -2173,6 +2445,24 @@
       state.selected = new Set(saved);
       showScreen('app');
       render();
+    }
+
+    syncReminderControls();
+    if (reminders) {
+      // Never prompts, and never contacts the service for someone who has not allowed
+      // notifications: it only brings an already-allowed device into sync (resubscribes
+      // if the browser dropped the subscription, refreshes the schedule as the horizon
+      // moves on).
+      reminders.reconcile();
+      window.addEventListener('online', function () { reminders.reconcile(); });
+      document.addEventListener('visibilitychange', function () { if (!document.hidden) reminders.reconcile(); });
+      try {
+        if (navigator.permissions && navigator.permissions.query) {
+          navigator.permissions.query({ name: 'notifications' }).then(function (p) {
+            p.onchange = function () { syncReminderControls(); reminders.reconcile(); };
+          }).catch(function () {});
+        }
+      } catch (e) { /* permission change events are a nicety */ }
     }
 
     if ('serviceWorker' in navigator) {
@@ -2223,6 +2513,8 @@
     KEY_MIDSEM_VISIBLE: KEY_MIDSEM_VISIBLE,
     isStandaloneDisplay: isStandaloneDisplay,
     isIOSSafariInstallable: isIOSSafariInstallable,
+    reminders: function () { return reminders; },
+    reminderDeps: reminderDeps,
     installMode: function () { return installMode; },
     hasDeferredInstallPrompt: function () { return !!deferredInstallPrompt; }
   };
